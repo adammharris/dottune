@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot ./web/index.html",
+    "build": "bun build ./web/index.html --outdir dist --minify",
     "test": "bun test",
     "events": "bun tools/events.ts",
     "midi": "bun tools/midi.ts",
