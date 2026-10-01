@@ -16,6 +16,7 @@ const TIMES = ["2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "9/8", "12/8"];
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const source = $<HTMLTextAreaElement>("source");
 const gutter = $<HTMLPreElement>("gutter");
+const highlight = $<HTMLPreElement>("highlight");
 const status = $<HTMLElement>("status");
 const playButton = $<HTMLButtonElement>("play");
 const loopBox = $<HTMLInputElement>("loop");
@@ -33,6 +34,8 @@ const roll = new PianoRoll(canvas);
 
 /** Last song that compiled; kept playing while the source has errors. */
 let song: Song | null = null;
+/** The text `song` was compiled from; slot spans are only valid while it matches the source. */
+let compiled = "";
 let errorLine: number | null = null;
 let figReady = false;
 
@@ -42,6 +45,7 @@ function recompile(): void {
   localStorage.setItem(STORAGE_KEY, source.value);
   try {
     song = compile(source.value);
+    compiled = source.value;
     errorLine = null;
     player.setSong(song);
     setStatus(`${song.events.length} notes · ${song.voices.map((v, i) => `<span style="color:${voiceColor(i)}">${v}</span>`).join(" ")}`, "html");
@@ -53,6 +57,7 @@ function recompile(): void {
     setStatus(e.message, "error");
   }
   renderGutter();
+  renderHighlight();
 }
 
 function setStatus(text: string, kind: "html" | "error" | "text" = "text"): void {
@@ -72,10 +77,48 @@ function renderGutter(): void {
 let debounce: ReturnType<typeof setTimeout> | undefined;
 source.addEventListener("input", () => {
   renderGutter();
+  renderHighlight();
   clearTimeout(debounce);
   debounce = setTimeout(recompile, 150);
 });
-source.addEventListener("scroll", () => (gutter.scrollTop = source.scrollTop));
+source.addEventListener("scroll", () => {
+  gutter.scrollTop = highlight.scrollTop = source.scrollTop;
+  highlight.scrollLeft = source.scrollLeft;
+});
+
+/** Marks the selected token in the source, or nothing while the source has moved on from `song`. */
+function renderHighlight(reveal = false): void {
+  const span = song && selected !== null && compiled === source.value ? song.slots[selected]!.span : null;
+  const text = source.value;
+  // The trailing newline keeps the mirror as tall as the textarea when the text ends in one.
+  highlight.innerHTML = span
+    ? `${escapeHtml(text.slice(0, span[0]))}<mark>${escapeHtml(text.slice(...span))}</mark>${escapeHtml(text.slice(span[1]))}\n`
+    : `${escapeHtml(text)}\n`;
+  const mark = highlight.querySelector("mark");
+  if (reveal && mark) {
+    const pad = 24;
+    if (mark.offsetTop < source.scrollTop + pad) source.scrollTop = mark.offsetTop - pad;
+    else if (mark.offsetTop + mark.offsetHeight > source.scrollTop + source.clientHeight - pad)
+      source.scrollTop = mark.offsetTop + mark.offsetHeight - source.clientHeight + pad;
+    if (mark.offsetLeft < source.scrollLeft + pad) source.scrollLeft = mark.offsetLeft - pad;
+    else if (mark.offsetLeft + mark.offsetWidth > source.scrollLeft + source.clientWidth - pad)
+      source.scrollLeft = mark.offsetLeft + mark.offsetWidth - source.clientWidth + pad;
+  }
+  highlight.scrollTop = source.scrollTop;
+  highlight.scrollLeft = source.scrollLeft;
+}
+
+/** Placing the caret on a token selects it, as clicking it on the roll would. */
+function selectAtCaret(): void {
+  if (!song || compiled !== source.value || source.selectionStart !== source.selectionEnd) return;
+  const at = source.selectionStart;
+  const i = song.slots.findIndex((s) => s.span && s.span[0] <= at && at <= s.span[1]);
+  select(i === -1 ? null : i);
+}
+source.addEventListener("click", selectAtCaret);
+source.addEventListener("keyup", (e) => {
+  if (e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End") selectAtCaret();
+});
 source.addEventListener("keydown", (e) => {
   if (e.key === "Tab" && !e.metaKey && !e.ctrlKey) {
     e.preventDefault();
@@ -148,6 +191,7 @@ function select(index: number | null): void {
   selectedKey = index === null || !song ? null : keyOf(song.slots[index]!);
   describeSelection();
   if (song) syncSettings(song);
+  renderHighlight(document.activeElement !== source);
 }
 
 function reselect(): void {
@@ -209,11 +253,14 @@ canvas.addEventListener("mousedown", (e) => {
   if (!song) return;
   const p = roll.pointAt(e.clientX, e.clientY);
   if (!p) return;
-  if (e.shiftKey) return player.seek(p.tick);
-  const slot = roll.slotAt(song, p.tick, p.midi);
-  select(slot);
+  // A click moves the playhead: to the start of the note clicked, else to the click.
+  // Shift-click moves it without changing the selection.
+  const slot = e.shiftKey ? null : roll.slotAt(song, p.tick, p.midi);
   const s = slot !== null ? song.slots[slot] : undefined;
-  if (s?.midi.length) void player.preview(s.midi, song.voices.indexOf(s.voice));
+  player.seek(s ? s.start : p.tick);
+  if (e.shiftKey) return;
+  select(slot);
+  if (s?.midi.length && !player.playing) void player.preview(s.midi, song.voices.indexOf(s.voice));
 });
 
 canvas.addEventListener("keydown", (e) => {

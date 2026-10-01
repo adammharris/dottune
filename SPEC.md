@@ -1,12 +1,14 @@
-# Tune format — v0.2 draft
+# Tune format — v0.3 draft
 
 A plain-text music format for people who think at a keyboard.
-Two ideas carry the whole design:
+Three ideas carry the whole design:
 
 1. **Spacing is time.** A bar is split evenly among its tokens.
    You never write a duration.
 2. **Scale degrees, not letter names.** `1` is the tonic of the current key.
    Change the key line and the whole piece transposes.
+3. **Every note says its own octave.** A degree sounds in its voice's octave
+   unless it carries `'` or `,` marks. It never depends on the note before it.
 
 Working file extension: `.tune`. (Name is a placeholder.)
 
@@ -15,7 +17,7 @@ key C major
 tempo 100
 
 RH: 3 2 1 2 | 3 3 3 - | 2 2 2 - | 3 5 5 - |
-LH: I       | I       | V       | I       |
+LH: I       | I       | V,      | I       |
 ```
 
 ---
@@ -29,7 +31,7 @@ A file is a **header** followed by one or more **blocks**, with optional **chang
   Blocks play one after another, like systems on a page.
 - **Change:** directive lines between blocks (§2.1). They start after a blank line and run up to the block they apply to.
 - **Voice line:** `Name: bar | bar | bar |`
-  - `Name` matches `[A-Za-z][A-Za-z0-9_]*`. `RH` and `LH` are conventional, not special — except for their default octave (§4.3).
+  - `Name` matches `[A-Za-z][A-Za-z0-9_]*`. `RH` and `LH` are conventional, not special — except for their default octave (§4.2).
   - The directive words `key`, `tempo`, `time`, and `octave` are reserved and cannot name a voice.
   - The trailing `|` is optional. An empty bar (`||`, or `|` with only whitespace between) is an error.
   - A voice may appear at most once per block.
@@ -42,7 +44,7 @@ Any voice that is shorter than the block, or absent from the block,
 is padded with rests to the block's length.
 The next block begins after that.
 
-Voices keep their pitch reference (§4.2) across blocks, except where a change says otherwise (§2.1).
+A block can be read on its own: its pitches depend only on its tokens and the settings in force (§4.2).
 
 ---
 
@@ -78,13 +80,10 @@ RH: 1 2 3 - |
 - A change must be followed by a block. Directives after the last block are an error.
 - **`tempo`** changes playback speed only; ticks are unaffected.
 - **`time`** changes the bar length of the following blocks.
-- **`key`** changes the tonic and scale. Each voice's reference (§4.2) moves to the new scale:
-  take the reference's pitch in the old key **without** its accidental,
-  and use the degree of the new scale that is nearest to it in semitones; on a tie, the lower one.
-  So a melody continues where it was rather than jumping to the new key's home octave.
+- **`key`** changes the tonic and scale. Each voice keeps its octave number,
+  so its degrees now count up from the new tonic in that octave (§4.2).
   A `key` directive that repeats the current key changes nothing.
-- **`octave <voice> <n>`** sets the voice's home octave and **resets** its reference:
-  the voice's next note is placed as if it were its first (§4.3).
+- **`octave <voice> <n>`** changes the voice's octave from the next block on.
 
 ---
 
@@ -146,26 +145,16 @@ Examples: `1`, `5`, `b3`, `#4`, `1'`, `5,,`.
 The degree selects a pitch from the key's mode; the accidental raises/lowers it one semitone.
 In `key A minor`, `3` is C and `#7` is G#.
 
-### 4.2 Octave placement: nearest note
+### 4.2 Octaves
 
-Each voice tracks a **reference** (the previous note's position on the diatonic staff).
-A new note goes to whichever copy of its degree is **nearest in scale steps**:
+Each voice has an **octave** `n`: from `octave <voice> <n>`, or 3 for `LH` and 4 for every other voice.
+The degrees `1`–`7` with no marks are the seven scale notes counting **upward** from the tonic in octave `n`.
+Each `'` raises a note an octave; each `,` lowers it one.
 
-- Let `d = (new_degree − ref_degree) mod 7`.
-- If `d ≤ 3`, move **up** `d` steps; otherwise move **down** `7 − d` steps.
-- Then each `'` adds an octave and each `,` subtracts one.
+A note's pitch depends only on its own token, the key, and its voice's octave — never on the notes before it.
+So `7 1` falls a seventh (`7 1'` rises a step), and `1 5,` drops a fourth.
 
-Because 7 is odd there are no ties. Accidentals do not affect direction.
-Repeating a degree (`d = 0`) stays on the same pitch.
-
-So `1 5` drops to the 5 below, `1 4` rises to the 4 above, `7 1` rises to the next tonic.
-
-### 4.3 The first note of a voice
-
-The first note of a voice is placed in the voice's **home octave**: the octave that starts at the tonic in octave `n` (from `octave`, default 4 or 3 for `LH`), counting **upward** from the tonic.
-Octave marks then apply.
-
-Middle C is `C4` = MIDI 60. In `key C major`, `RH`'s first `5` is G4; in `key A minor`, `RH`'s first `1` is A4.
+Middle C is `C4` = MIDI 60. In `key C major`, `RH`'s `5` is G4; in `key A minor`, `RH`'s `1` is A4 and `3` is C5.
 
 ---
 
@@ -175,10 +164,9 @@ Middle C is `C4` = MIDI 60. In `key C major`, `RH`'s first `5` is G4; in `key A 
 
 `a+b+c` sounds several degrees at once (e.g. `1+3+5`).
 
-- The first member is placed by the nearest-note rule (§4.2).
-- Each following member goes to the nearest copy **strictly above** the member before it (1–7 steps up).
-- Octave marks on any member apply after placement and also shift everything built on it.
-- The **first member** becomes the voice's new reference.
+- Each member is placed like a note (§4.2), on its own: `1+3+5` is a root-position triad,
+  and `5,+1+3` puts the fifth underneath.
+- Members may be written in any order; they sound together either way.
 
 ### 5.2 Chords (Roman numerals)
 
@@ -200,9 +188,8 @@ Middle C is `C4` = MIDI 60. In `key C major`, `RH`'s first `5` is G4; in `key A 
 
   `maj7` adds a major seventh (`11`) to any triad: `Imaj7`, `imaj7`.
 
-- **Root placement:** the root is placed like a note (§4.2–4.3), using the voice's reference; octave marks apply to the root. Chord tones are stacked upward from the root in close position, using the semitone intervals above.
+- **Root placement:** the root is placed like a note (§4.2); octave marks apply to the root. Chord tones are stacked upward from the root in close position, using the semitone intervals above.
 - **Slash bass:** `/degree` (optionally with `#`/`b`) adds that degree as an extra note at the nearest copy **strictly below** the root. `I/3` = first-inversion sound with E in the bass.
-- The **root** (not the bass) becomes the voice's new reference.
 
 A voice can freely mix notes, stacks, and chords.
 
@@ -274,10 +261,10 @@ RH: 3 2 1 2 | 3 3 3 - | 2 2 2 - | 3 5 5 - |
 6720 960 RH G4
 ```
 
-### 8.2 Eight to the bar; `7 1` rises
+### 8.2 Eight to the bar; `7 1'` reaches the next tonic
 
 ```tune
-RH: 1 2 3 4 5 6 7 1 |
+RH: 1 2 3 4 5 6 7 1' |
 ```
 
 ```events
@@ -291,7 +278,7 @@ RH: 1 2 3 4 5 6 7 1 |
 1680 240 RH C5
 ```
 
-### 8.3 Octave marks are relative to the nearest note
+### 8.3 Octave marks
 
 ```tune
 RH: 1 1' 1 1, |
@@ -300,21 +287,21 @@ RH: 1 1' 1 1, |
 ```events
 0 480 RH C4
 480 480 RH C5
-960 480 RH C5
-1440 480 RH C4
+960 480 RH C4
+1440 480 RH C3
 ```
 
-### 8.4 Nearest note: down a fourth, up a fourth
+### 8.4 Degrees count up from the tonic, whatever came before
 
 ```tune
-RH: 1 5 1 4 |
+RH: 1 7 7, 5, |
 ```
 
 ```events
 0 480 RH C4
-480 480 RH G3
-960 480 RH C4
-1440 480 RH F4
+480 480 RH B4
+960 480 RH B3
+1440 480 RH G3
 ```
 
 ### 8.5 Whole notes and rests
@@ -398,7 +385,7 @@ RH: 1 #4 5 b7 |
 
 ```tune
 key A minor
-RH: 1 3 5 #7 | 1 |
+RH: 1 3 5 #7 | 1' |
 ```
 
 ```events
@@ -428,7 +415,7 @@ RH: 1 2 3 | 5 |
 
 ```tune
 time 6/8
-RH: 1 - - 5 - - | 1 |
+RH: 1 - - 5, - - | 1 |
 ```
 
 ```events
@@ -441,7 +428,7 @@ RH: 1 - - 5 - - | 1 |
 
 ```tune
 RH: 3 2 1 2 | 3 3 3 - |
-LH: I       | V       |
+LH: I       | V,      |
 ```
 
 ```events
@@ -460,10 +447,10 @@ LH: I       | V       |
 2880 960 RH E4
 ```
 
-### 8.15 Chord roots follow the nearest-note rule
+### 8.15 Chord roots take octave marks
 
 ```tune
-LH: I vi IV V7 |
+LH: I vi, IV, V7, |
 ```
 
 ```events
@@ -485,7 +472,7 @@ LH: I vi IV V7 |
 ### 8.16 Chord qualities and borrowed chords
 
 ```tune
-LH: ii7 viio Imaj7 bVII |
+LH: ii7 viio, Imaj7 bVII, |
 ```
 
 ```events
@@ -521,7 +508,7 @@ LH: I/3 |
 ### 8.18 Stacks
 
 ```tune
-RH: 1+3+5 5+1+3 |
+RH: 1+3+5 5,+1+3 |
 ```
 
 ```events
@@ -556,7 +543,7 @@ RH: 1 2 | 3 4 |
 LH: I |   // LH rests in bar 2
 
 RH: 5 - - - |
-LH: V |
+LH: V, |
 ```
 
 ```events
@@ -677,7 +664,7 @@ RH: 5 4 3 |
 2880 480 RH E4
 ```
 
-### 8.25 Key change: the melody continues from where it was
+### 8.25 Key change: degrees count from the new tonic
 
 ```tune
 key C major
@@ -697,24 +684,7 @@ RH: 1 2 3 - |
 2880 960 RH B4
 ```
 
-### 8.26 Key change: a tie between neighbours goes down
-
-F4 is a semitone from both E4 and F#4 in G major; the reference becomes E4, so `3` falls to B3.
-
-```tune
-RH: 4 |
-
-key G major
-RH: 3 |
-```
-
-```events
-0 1920 RH F4
-1920 key G major
-1920 1920 RH B3
-```
-
-### 8.27 Same tonic, new mode
+### 8.26 Same tonic, new mode
 
 ```tune
 RH: 3 |
@@ -729,7 +699,7 @@ RH: 3 |
 1920 1920 RH D#4
 ```
 
-### 8.28 Octave change resets the voice
+### 8.27 Octave change
 
 ```tune
 RH: 1 2 |
@@ -745,7 +715,7 @@ RH: 1 2 |
 2880 960 RH D5
 ```
 
-### 8.29 A hold carries across a change
+### 8.28 A hold carries across a change
 
 ```tune
 RH: 1 - |
@@ -760,7 +730,7 @@ RH: - 2 |
 2880 960 RH D4
 ```
 
-### 8.30 Change errors
+### 8.29 Change errors
 
 A directive inside a block:
 
@@ -798,7 +768,7 @@ line 1
 
 ---
 
-## 9. Not in v0.2
+## 9. Not in v0.3
 
 Ideas deliberately left out, roughly in order of likely value:
 
@@ -808,10 +778,10 @@ Ideas deliberately left out, roughly in order of likely value:
 - Pickup (anacrusis) bars.
 - Repeats and named sections (`[A]`, `play A A B A`).
 - Drum voices.
-- Smarter chord voice-leading than "nearest root, close position".
+- Chord voice-leading (chords are close position above their root).
 
 ## 10. Open questions
 
 - Should the case of a numeral be **ignored** when a quality suffix is present (current rule), or should `Io` be an error?
-- Should a voice reference after a chord be its root (current rule) or its lowest note?
-- Is LH's default octave 3 right for chords, given roots drift down via the nearest-note rule (see 8.15)?
+- Is LH's default octave 3 right for chords? In `key C`, `V` sits at G3–D4, so chord parts often want `octave LH 2` or `V,`.
+- Should a voice's octave start at the tonic (current rule) or at C, as pitch names do? In `key Bb major`, `octave RH 4` spans B♭4–A5.

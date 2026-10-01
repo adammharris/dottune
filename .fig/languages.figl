@@ -1,4 +1,4 @@
 language[]
 > name = tune
 > extensions = [tune]
-> command = [bun, ~/Code/music/tools/fig-tune.mjs]
+> command = [bun, ~/Code/dottune/tools/fig-tune.mjs]

@@ -4,8 +4,7 @@
 
 import { Editor, init, registerLanguage, type Format } from "@diaryx/fig";
 import { tune } from "../tools/fig-tune.mjs";
-import { compile } from "./compile";
-import { keepNextPitch, type TokenEdit } from "./edit";
+import type { TokenEdit } from "./edit";
 import type { Song } from "./types";
 
 let format: Format | null = null;
@@ -34,7 +33,7 @@ export function applyTokenEdits(source: string, edits: TokenEdit[]): string {
   });
 }
 
-/** Applies a musical edit to one slot, then keeps the next note in that voice at its pitch. */
+/** Applies a musical edit to one slot. */
 export function applyMusicalEdit(
   source: string,
   song: Song,
@@ -42,8 +41,5 @@ export function applyMusicalEdit(
   op: (song: Song, index: number) => TokenEdit[],
 ): string {
   const edits = op(song, index);
-  if (edits.length === 0) return source;
-  const edited = applyTokenEdits(source, edits);
-  const fix = keepNextPitch(song, index, compile(edited));
-  return fix.length ? applyTokenEdits(edited, fix) : edited;
+  return edits.length === 0 ? source : applyTokenEdits(source, edits);
 }

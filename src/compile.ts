@@ -69,7 +69,8 @@ interface Header {
   octaves: Map<string, number>;
 }
 
-type Item = { kind: "token"; text: string } | { kind: "group"; items: Item[] };
+/** A token, with its character offsets in the source, or a `[ ]` group. */
+type Item = { kind: "token"; text: string; from: number; to: number } | { kind: "group"; items: Item[] };
 
 interface VoiceLine {
   name: string;
@@ -82,8 +83,8 @@ function stripComment(line: string): string {
   return i === -1 ? line : line.slice(0, i);
 }
 
-/** Applies a directive to `h`; for `octave`, returns the voice it names. */
-function parseDirective(text: string, line: number, h: Header): string | null {
+/** Applies a directive to `h`. */
+function parseDirective(text: string, line: number, h: Header): void {
   const word = text.split(/\s+/)[0]!;
   let m: RegExpExecArray | null;
   switch (word) {
@@ -95,32 +96,33 @@ function parseDirective(text: string, line: number, h: Header): string | null {
       h.tonicPc = LETTERS[m[1]!]! + (m[2] === "#" ? 1 : m[2] === "b" ? -1 : 0);
       h.scale = modeScale(MODES[mode]!);
       h.key = `${m[1]}${m[2]} ${mode}`;
-      return null;
+      return;
     case "tempo":
       m = /^tempo\s+(\d+(?:\.\d+)?)$/.exec(text);
       if (!m || Number(m[1]) <= 0) throw new TuneError(line, `invalid tempo: "${text}"`);
       h.tempo = Number(m[1]);
-      return null;
+      return;
     case "time":
       m = /^time\s+(\d+)\s*\/\s*(\d+)$/.exec(text);
       if (!m || Number(m[1]) <= 0 || Number(m[2]) <= 0)
         throw new TuneError(line, `invalid time signature: "${text}"`);
       h.time = [Number(m[1]), Number(m[2])];
-      return null;
+      return;
     case "octave":
       m = new RegExp(`^octave\\s+(${VOICE_NAME})\\s+(-?\\d+)$`).exec(text);
       if (!m) throw new TuneError(line, `expected "octave <voice> <n>"`);
       h.octaves.set(m[1]!, Number(m[2]));
-      return m[1]!;
+      return;
     default:
       throw new TuneError(line, `unknown directive "${word}"`);
   }
 }
 
-function parseBar(text: string, line: number): Item[] {
-  const words = text.replace(/\[/g, " [ ").replace(/\]/g, " ] ").trim().split(/\s+/);
+/** Parses one bar; `offset` is where `text` starts in the source. */
+function parseBar(text: string, line: number, offset: number): Item[] {
   const stack: Item[][] = [[]];
-  for (const w of words) {
+  for (const m of text.matchAll(/\[|\]|[^\s[\]]+/g)) {
+    const w = m[0];
     if (w === "[") {
       stack.push([]);
     } else if (w === "]") {
@@ -129,59 +131,53 @@ function parseBar(text: string, line: number): Item[] {
       if (items.length === 0) throw new TuneError(line, `empty group "[]"`);
       stack.at(-1)!.push({ kind: "group", items });
     } else {
-      stack.at(-1)!.push({ kind: "token", text: w });
+      stack.at(-1)!.push({ kind: "token", text: w, from: offset + m.index, to: offset + m.index + w.length });
     }
   }
   if (stack.length !== 1) throw new TuneError(line, `unbalanced "["`);
   return stack[0]!;
 }
 
-function parseBars(text: string, line: number): Item[][] {
+function parseBars(text: string, line: number, offset: number): Item[][] {
   const parts = text.split("|");
   if (parts.length > 1 && parts.at(-1)!.trim() === "") parts.pop();
   return parts.map((p) => {
     if (p.trim() === "") throw new TuneError(line, "empty bar");
-    return parseBar(p, line);
+    const bar = parseBar(p, line, offset);
+    offset += p.length + 1;
+    return bar;
   });
 }
 
 // ---------------------------------------------------------------------------
 // Pitch
 
-interface VoiceState {
-  /** Diatonic index of the reference note, relative to the home tonic. */
-  ref: number | null;
+/** Where a voice's notes are placed: the tonic of its octave, and the key's scale (SPEC §4.2). */
+interface Place {
   tonicMidi: number;
+  scale: number[];
 }
 
 export const NOTE = /^([#b]?)([1-7])([',]*)$/;
 export const CHORD = /^([#b]?)(VII|VI|V|IV|III|II|I|vii|vi|v|iv|iii|ii|i)([oh+]?)(maj7|7)?([',]*)(?:\/([#b]?)([1-7]))?$/;
 export const NUMERALS = ["i", "ii", "iii", "iv", "v", "vi", "vii"];
 
-/** The octave a voice's first note is placed in, absent an `octave` directive (SPEC §4.3). */
+/** A voice's octave, absent an `octave` directive (SPEC §4.2). */
 export const defaultOctave = (voice: string) => (voice === "LH" ? 3 : 4);
 
 const accidental = (s: string | undefined) => (s === "#" ? 1 : s === "b" ? -1 : 0);
 const octaveMarks = (s: string) => [...s].reduce((n, c) => n + (c === "'" ? 1 : -1), 0);
 
-export function nearest(ref: number | null, degree: number): number {
-  if (ref === null) return degree;
-  const d = mod(degree - mod(ref, 7), 7);
-  return ref + (d <= 3 ? d : d - 7);
-}
+/** The pitch of a diatonic index (0 = the tonic of the voice's octave), plus an accidental. */
+const midiAt = (idx: number, acc: number, p: Place) => p.tonicMidi + 12 * Math.floor(idx / 7) + p.scale[mod(idx, 7)]! + acc;
 
-function midiAt(idx: number, acc: number, st: VoiceState, h: Header): number {
-  return st.tonicMidi + 12 * Math.floor(idx / 7) + h.scale[mod(idx, 7)]! + acc;
-}
+/** The diatonic index a degree (1–7) and its octave marks name. */
+const indexOf = (degree: number, marks: string) => degree - 1 + 7 * octaveMarks(marks);
 
-/** Returns the MIDI notes a sounding token produces, updating the voice reference. */
-function sound(text: string, line: number, st: VoiceState, h: Header): number[] {
+/** Returns the MIDI notes a sounding token produces. */
+function sound(text: string, line: number, p: Place): number[] {
   let m = NOTE.exec(text);
-  if (m) {
-    const idx = nearest(st.ref, Number(m[2]) - 1) + 7 * octaveMarks(m[3]!);
-    st.ref = idx;
-    return [midiAt(idx, accidental(m[1]), st, h)];
-  }
+  if (m) return [midiAt(indexOf(Number(m[2]), m[3]!), accidental(m[1]), p)];
 
   m = CHORD.exec(text);
   if (m) {
@@ -193,37 +189,22 @@ function sound(text: string, line: number, st: VoiceState, h: Header): number[] 
     if (seventh === "maj7") triad.push(11);
     else if (seventh === "7") triad.push(quality === "o" ? 9 : 10);
 
-    const rootIdx = nearest(st.ref, NUMERALS.indexOf(numeral!.toLowerCase())) + 7 * octaveMarks(marks!);
-    st.ref = rootIdx;
-    const root = midiAt(rootIdx, accidental(acc), st, h);
+    const rootIdx = indexOf(NUMERALS.indexOf(numeral!.toLowerCase()) + 1, marks!);
+    const root = midiAt(rootIdx, accidental(acc), p);
     const notes = triad.map((i) => root + i);
     if (bassDeg) {
       const below = mod(rootIdx - (Number(bassDeg) - 1), 7) || 7;
-      notes.unshift(midiAt(rootIdx - below, accidental(bassAcc), st, h));
+      notes.unshift(midiAt(rootIdx - below, accidental(bassAcc), p));
     }
     return notes;
   }
 
   if (text.includes("+")) {
-    const members = text.split("+");
-    const notes: number[] = [];
-    let prev: number | null = null;
-    for (const member of members) {
+    return text.split("+").map((member) => {
       const mm = NOTE.exec(member);
       if (!mm) throw new TuneError(line, `invalid stack "${text}"`);
-      const degree = Number(mm[2]) - 1;
-      let idx: number;
-      if (prev === null) {
-        idx = nearest(st.ref, degree);
-      } else {
-        idx = prev + (mod(degree - mod(prev, 7), 7) || 7);
-      }
-      idx += 7 * octaveMarks(mm[3]!);
-      if (prev === null) st.ref = idx;
-      prev = idx;
-      notes.push(midiAt(idx, accidental(mm[1]), st, h));
-    }
-    return notes;
+      return midiAt(indexOf(Number(mm[2]), mm[3]!), accidental(mm[1]), p);
+    });
   }
 
   throw new TuneError(line, `unknown token "${text}"`);
@@ -241,6 +222,7 @@ interface Slot {
   bar: number;
   path: number[];
   editable: boolean;
+  span: [number, number] | null;
 }
 
 function kindOf(text: string): SlotKind {
@@ -255,27 +237,14 @@ interface Block {
   voices: VoiceLine[];
   /** The settings in force for this block. */
   settings: Header;
-  /** Which directives the change before this block set, and which voices it reset (SPEC §2.1). */
+  /** Which directives the change before this block set (SPEC §2.1). */
   directives: Set<string>;
-  resets: Set<string>;
   /** First voice line. */
   line: number;
 }
 
 const snapshot = (h: Header): Header => ({ ...h, time: [...h.time], octaves: new Map(h.octaves) });
 const sameKey = (a: Header, b: Header) => a.tonicPc === b.tonicPc && a.scale.join() === b.scale.join();
-
-/** The diatonic index, in a new key, nearest a pitch; ties go to the lower (SPEC §2.1). */
-function reanchor(pitch: number, tonicMidi: number, scale: number[]): number {
-  const base = Math.floor((pitch - tonicMidi) / 12) * 7;
-  let best = base;
-  let bestDist = Infinity;
-  for (let idx = base - 7; idx <= base + 14; idx++) {
-    const dist = Math.abs(tonicMidi + 12 * Math.floor(idx / 7) + scale[mod(idx, 7)]! - pitch);
-    if (dist < bestDist) [best, bestDist] = [idx, dist];
-  }
-  return best;
-}
 
 export function compile(source: string): Song {
   const cur: Header = {
@@ -289,12 +258,15 @@ export function compile(source: string): Song {
   const blocks: Block[] = [];
   let block: Block | null = null;
   /** Directives read since the last block: the change the next block starts with. */
-  let pending = { directives: new Set<string>(), resets: new Set<string>(), firstLine: 0 };
+  let pending = { directives: new Set<string>(), firstLine: 0 };
 
   const lines = source.split(/\r?\n/);
+  let lineStart = 0;
   for (let i = 0; i < lines.length; i++) {
     const lineNo = i + 1;
     const raw = lines[i]!;
+    const offset = lineStart;
+    lineStart += raw.length + (source[lineStart + raw.length] === "\r" ? 2 : 1);
     if (raw.trim() === "") {
       block = null;
       continue;
@@ -307,14 +279,14 @@ export function compile(source: string): Song {
       const name = vm[1]!;
       if (DIRECTIVES.has(name)) throw new TuneError(lineNo, `"${name}" is a directive and cannot name a voice`);
       if (!block) {
-        block = { voices: [], settings: snapshot(cur), directives: pending.directives, resets: pending.resets, line: lineNo };
+        block = { voices: [], settings: snapshot(cur), directives: pending.directives, line: lineNo };
         blocks.push(block);
-        pending = { directives: new Set(), resets: new Set(), firstLine: 0 };
+        pending = { directives: new Set(), firstLine: 0 };
       }
       if (block.voices.some((v) => v.name === name))
         throw new TuneError(lineNo, `voice "${name}" appears twice in one block`);
       if (vm[2]!.trim() === "") throw new TuneError(lineNo, "empty bar");
-      block.voices.push({ name, line: lineNo, bars: parseBars(vm[2]!, lineNo) });
+      block.voices.push({ name, line: lineNo, bars: parseBars(vm[2]!, lineNo, offset + raw.indexOf(":") + 1) });
       continue;
     }
 
@@ -324,9 +296,8 @@ export function compile(source: string): Song {
         throw new TuneError(lineNo, `"${word}" is inside a block; changes go between blocks, after a blank line`);
       throw new TuneError(lineNo, `expected "Name: bars…", got "${text}"`);
     }
-    const reset = parseDirective(text, lineNo, cur);
+    parseDirective(text, lineNo, cur);
     pending.directives.add(word);
-    if (reset) pending.resets.add(reset);
     pending.firstLine ||= lineNo;
   }
   if (blocks.length > 0 && pending.firstLine)
@@ -347,7 +318,8 @@ export function compile(source: string): Song {
     items.forEach((item, j) => {
       const s = add(start, mul(each, j));
       const here = { ...at, path: [...at.path, j] };
-      if (item.kind === "token") out.push({ start: s, end: add(s, each), text: item.text, editable: true, ...here });
+      if (item.kind === "token")
+        out.push({ start: s, end: add(s, each), text: item.text, editable: true, span: [item.from, item.to], ...here });
       else layout(item.items, s, each, here, out);
     });
   };
@@ -364,7 +336,7 @@ export function compile(source: string): Song {
         const bar = vl?.bars[k];
         if (bar) layout(bar, start, barLen, { line: vl.line, block: blockIndex, bar: k, path: [] }, out);
         else
-          out.push({ start, end: add(start, barLen), text: ".", line: vl?.line ?? 0, block: blockIndex, bar: k, path: [], editable: false });
+          out.push({ start, end: add(start, barLen), text: ".", line: vl?.line ?? 0, block: blockIndex, bar: k, path: [], editable: false, span: null });
       }
     }
     const blockEnd = add(blockStart, mul(barLen, nBars));
@@ -395,9 +367,6 @@ export function compile(source: string): Song {
   const events: NoteEvent[] = [];
   const slotInfos: SlotInfo[] = [];
   for (const name of voices) {
-    const st: VoiceState = { ref: null, tonicMidi: 0 };
-    let h = cur;
-    let blockIndex = -1;
     let sounding: { start: Q; end: Q; notes: number[]; slot: number } | null = null;
 
     const flush = () => {
@@ -408,26 +377,16 @@ export function compile(source: string): Song {
       sounding = null;
     };
 
-    /** Entering a block: apply its change to this voice (SPEC §2.1). */
-    const enter = (b: Block) => {
-      const next = b.settings;
-      const tonicMidi = 12 * ((next.octaves.get(name) ?? defaultOctave(name)) + 1) + next.tonicPc;
-      if (b.resets.has(name)) st.ref = null;
-      else if (st.ref !== null && !sameKey(h, next)) st.ref = reanchor(midiAt(st.ref, 0, st, h), tonicMidi, next.scale);
-      st.tonicMidi = tonicMidi;
-      h = next;
-    };
-
     for (const slot of slots.get(name)!) {
-      if (slot.block !== blockIndex) enter(blocks[(blockIndex = slot.block)]!);
-      const refBefore = st.ref;
       let notes: number[] = [];
       if (slot.text === "-") {
         if (sounding) sounding.end = slot.end;
       } else if (slot.text === ".") {
         flush();
       } else {
-        notes = sound(slot.text, slot.line, st, h);
+        const h = blocks[slot.block]!.settings;
+        const tonicMidi = 12 * ((h.octaves.get(name) ?? defaultOctave(name)) + 1) + h.tonicPc;
+        notes = sound(slot.text, slot.line, { tonicMidi, scale: h.scale });
         flush();
         sounding = { start: slot.start, end: slot.end, notes, slot: slotInfos.length };
       }
@@ -438,11 +397,10 @@ export function compile(source: string): Song {
         path: slot.path,
         editable: slot.editable,
         text: slot.text,
+        span: slot.span,
         kind: kindOf(slot.text),
         start: ticks(slot.start),
         end: ticks(slot.end),
-        refBefore,
-        ref: st.ref,
         midi: notes,
       });
     }

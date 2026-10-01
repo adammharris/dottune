@@ -2,15 +2,15 @@ key C major
 tempo 100
 
 RH: 3 2 1 2 | 3 3 3 - | 2 2 2 - | 3 5 5 - |
-LH: I       | I       | V       | I       |
+LH: I       | I       | V,      | I       |
 
 // up a whole step, a little faster
 key D major
 tempo 112
 RH: 3 2 1 2 | 3 3 3 3 | 2 2 3 2 | 1 - - - |
-LH: I       | I       | V       | I       |
+LH: I       | I       | V,      | I       |
 
 // waltz time to finish
 time 3/4
-RH: 3 - 5 | 1 - - |
+RH: 3 - 5 | 1' - - |
 LH: I     | I     |

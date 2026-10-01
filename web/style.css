@@ -114,6 +114,7 @@ main {
 }
 
 #gutter,
+#highlight,
 #source {
   margin: 0;
   padding: 12px 8px;
@@ -134,8 +135,35 @@ main {
   border-radius: 3px;
 }
 
-#source {
+#code {
+  position: relative;
   flex: 1;
+  min-width: 0;
+}
+
+/* Mirrors the source text, invisibly, so a <mark> lands under the selected token. */
+#highlight {
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  white-space: pre;
+  overflow: hidden;
+  tab-size: 4;
+  pointer-events: none;
+}
+
+#highlight mark {
+  color: transparent;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: 0 0 0 1px var(--accent);
+  border-radius: 2px;
+}
+
+#source {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   resize: none;
   border: 0;
   outline: 0;

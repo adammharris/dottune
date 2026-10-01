@@ -24,14 +24,17 @@
     <main>
       <section id="editor">
         <pre id="gutter" aria-hidden="true"></pre>
-        <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+        <div id="code">
+          <pre id="highlight" aria-hidden="true"></pre>
+          <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+        </div>
       </section>
       <section id="stage">
         <canvas id="roll" tabindex="0"></canvas>
         <p id="hint">
-          Click a note · <kbd>↑</kbd><kbd>↓</kbd> step · <kbd>⇧↑</kbd><kbd>⇧↓</kbd> octave · <kbd>1</kbd>–<kbd>7</kbd> degree ·
+          Click a note to select it and play from there · <kbd>↑</kbd><kbd>↓</kbd> step · <kbd>⇧↑</kbd><kbd>⇧↓</kbd> octave · <kbd>1</kbd>–<kbd>7</kbd> degree ·
           <kbd>#</kbd> <kbd>b</kbd> · <kbd>.</kbd> rest · <kbd>-</kbd> hold · <kbd>S</kbd> split · <kbd>←</kbd><kbd>→</kbd>
-          <kbd>Tab</kbd> move · <kbd>⌘Z</kbd> undo · <kbd>Space</kbd> play · <kbd>⇧</kbd>-click seek
+          <kbd>Tab</kbd> move · <kbd>⌘Z</kbd> undo · <kbd>Space</kbd> play · <kbd>⇧</kbd>-click move playhead only
         </p>
       </section>
     </main>

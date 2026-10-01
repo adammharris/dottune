@@ -24,12 +24,11 @@ export interface SlotInfo {
   /** False for the rests that pad a short voice; they have no text to edit. */
   editable: boolean;
   text: string;
+  /** Character offsets of `text` in the source; null for padding rests. */
+  span: [number, number] | null;
   kind: SlotKind;
   start: number;
   end: number;
-  /** The voice's diatonic reference before and after this token (SPEC §4.2). */
-  refBefore: number | null;
-  ref: number | null;
   midi: number[];
 }
 
