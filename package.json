@@ -1,0 +1,19 @@
+{
+  "name": "music",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot ./web/index.html",
+    "test": "bun test",
+    "events": "bun tools/events.ts",
+    "midi": "bun tools/midi.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@diaryx/fig": "5.0.0"
+  }
+}

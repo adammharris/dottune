@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tune</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <button id="play" title="Play / stop (⌘↵)">▶ Play</button>
+      <label><input id="loop" type="checkbox" checked /> Loop</label>
+      <button id="export" title="Download as a Standard MIDI File">⬇ MIDI</button>
+      <select id="examples" aria-label="Load example">
+        <option value="">Load example…</option>
+      </select>
+      <span class="sep"></span>
+      <span id="scope" title="Select a note to edit the settings for its block"></span>
+      <label>Key <select id="tonic"></select><select id="mode"></select></label>
+      <label>Tempo <input id="tempo" type="number" min="20" max="320" step="1" /></label>
+      <label>Time <select id="time"></select></label>
+      <span id="octaves" title="Octave each part's first note starts in"></span>
+    </header>
+    <main>
+      <section id="editor">
+        <pre id="gutter" aria-hidden="true"></pre>
+        <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+      </section>
+      <section id="stage">
+        <canvas id="roll" tabindex="0"></canvas>
+        <p id="hint">
+          Click a note · <kbd>↑</kbd><kbd>↓</kbd> step · <kbd>⇧↑</kbd><kbd>⇧↓</kbd> octave · <kbd>1</kbd>–<kbd>7</kbd> degree ·
+          <kbd>#</kbd> <kbd>b</kbd> · <kbd>.</kbd> rest · <kbd>-</kbd> hold · <kbd>S</kbd> split · <kbd>←</kbd><kbd>→</kbd>
+          <kbd>Tab</kbd> move · <kbd>⌘Z</kbd> undo · <kbd>Space</kbd> play · <kbd>⇧</kbd>-click seek
+        </p>
+      </section>
+    </main>
+    <footer id="status"></footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+key C major
+tempo 120
+time 4/4
+
+// Eight slots per bar makes the dotted rhythm in bar 4 easy.
+RH: 3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 3 - - 2 2 - - - |
+LH: I       | V       | I       | V                |
+
+RH: 3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 2 - - 1 1 - - - |
+LH: I       | V       | I       | V   I            |
