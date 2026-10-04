@@ -1,7 +1,9 @@
-# Builds the web player and deploys it to GitHub Pages.
+# Builds the web player and deploys it to GitHub Pages on every push to main.
 name: Deploy to GitHub Pages
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
