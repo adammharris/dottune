@@ -1,12 +1,15 @@
 // Standard MIDI Files (SMF): a format-1 writer for songs, and a small reader.
 //
 // Track 0 is the conductor (tempo, time and key signature); each voice gets
-// its own track and channel, named after the voice. Ticks are the event
-// list's own: 480 per quarter note.
+// its own track, named after the voice, and its own channel while they last.
+// MIDI has 15 melodic channels, so from the 16th voice on, voices share them
+// in turn. Ticks are the event list's own: 480 per quarter note.
 
 import { TICKS_PER_QUARTER, type Song } from "./types";
 
 const VELOCITY = 80;
+/** Every channel but 10 (index 9), the drum channel. */
+const CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15];
 const LETTERS = "CDEFGAB";
 const NATURAL = [0, 2, 4, 5, 7, 9, 11];
 /** Sharps (+) or flats (−) in each spelled major key. */
@@ -92,7 +95,7 @@ export function writeMidi(song: Song): Uint8Array<ArrayBuffer> {
   ]);
 
   const voices = song.voices.map((voice, i) => {
-    const channel = i < 9 ? i : i + 1 < 16 ? i + 1 : 15; // skip channel 10, the drum channel
+    const channel = CHANNELS[i % CHANNELS.length]!;
     const events: TimedEvent[] = [meta(0, 0x03, ascii(voice))];
     for (const e of song.events) {
       if (e.voice !== voice) continue;

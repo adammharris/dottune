@@ -83,67 +83,105 @@ function stripComment(line: string): string {
   return i === -1 ? line : line.slice(0, i);
 }
 
-/** Applies a directive to `h`. */
-function parseDirective(text: string, line: number, h: Header): void {
+/** Tempo limits: below 4 bpm a quarter note is too long for MIDI's tempo field. */
+const MIN_TEMPO = 4;
+const MAX_TEMPO = 1000;
+/** The longest bar numerator, and the denominators allowed (powers of two, as MIDI requires). */
+const MAX_BEATS = 64;
+const DENOMINATORS = [1, 2, 4, 8, 16, 32, 64];
+/** MIDI's pitch range: C-1 to G9. */
+const LOWEST = 0;
+const HIGHEST = 127;
+
+/** Applies a directive to `h`; `span` is where `text` sits in the source. */
+function parseDirective(text: string, line: number, h: Header, span: [number, number]): void {
   const word = text.split(/\s+/)[0]!;
+  const fail = (reason: string) => new TuneError(line, reason, span);
   let m: RegExpExecArray | null;
   switch (word) {
     case "key":
       m = /^key\s+([A-G])([#b]?)(?:\s+([A-Za-z]+))?$/.exec(text);
-      if (!m) throw new TuneError(line, `invalid key: "${text}"`);
+      if (!m) throw fail(`invalid key: "${text}"`);
       const mode = (m[3] ?? "major").toLowerCase();
-      if (!(mode in MODES)) throw new TuneError(line, `unknown mode "${m[3]}"`);
+      if (!(mode in MODES)) throw fail(`unknown mode "${m[3]}"`);
       h.tonicPc = LETTERS[m[1]!]! + (m[2] === "#" ? 1 : m[2] === "b" ? -1 : 0);
       h.scale = modeScale(MODES[mode]!);
       h.key = `${m[1]}${m[2]} ${mode}`;
       return;
     case "tempo":
       m = /^tempo\s+(\d+(?:\.\d+)?)$/.exec(text);
-      if (!m || Number(m[1]) <= 0) throw new TuneError(line, `invalid tempo: "${text}"`);
+      if (!m) throw fail(`invalid tempo: "${text}"`);
+      if (Number(m[1]) < MIN_TEMPO || Number(m[1]) > MAX_TEMPO)
+        throw fail(`tempo must be from ${MIN_TEMPO} to ${MAX_TEMPO}, got ${m[1]}`);
       h.tempo = Number(m[1]);
       return;
     case "time":
       m = /^time\s+(\d+)\s*\/\s*(\d+)$/.exec(text);
-      if (!m || Number(m[1]) <= 0 || Number(m[2]) <= 0)
-        throw new TuneError(line, `invalid time signature: "${text}"`);
+      if (!m) throw fail(`invalid time signature: "${text}"`);
+      if (Number(m[1]) < 1 || Number(m[1]) > MAX_BEATS)
+        throw fail(`a bar must have from 1 to ${MAX_BEATS} beats, got ${m[1]}`);
+      if (!DENOMINATORS.includes(Number(m[2])))
+        throw fail(`the beat must be one of ${DENOMINATORS.join(", ")}, got ${m[2]}`);
       h.time = [Number(m[1]), Number(m[2])];
       return;
     case "octave":
       m = new RegExp(`^octave\\s+(${VOICE_NAME})\\s+(-?\\d+)$`).exec(text);
-      if (!m) throw new TuneError(line, `expected "octave <voice> <n>"`);
+      if (!m) throw fail(`expected "octave <voice> <n>"`);
+      if (DIRECTIVES.has(m[1]!)) throw fail(`"${m[1]}" is a directive and cannot name a voice`);
       h.octaves.set(m[1]!, Number(m[2]));
       return;
     default:
-      throw new TuneError(line, `unknown directive "${word}"`);
+      throw fail(`unknown directive "${word}"`);
   }
 }
 
 /** Parses one bar; `offset` is where `text` starts in the source. */
 function parseBar(text: string, line: number, offset: number): Item[] {
   const stack: Item[][] = [[]];
+  /** Where each open `[` is. */
+  const opens: number[] = [];
   for (const m of text.matchAll(/\[|\]|[^\s[\]]+/g)) {
     const w = m[0];
+    const at = offset + m.index;
     if (w === "[") {
       stack.push([]);
+      opens.push(at);
     } else if (w === "]") {
-      if (stack.length === 1) throw new TuneError(line, `unbalanced "]"`);
+      if (stack.length === 1) throw new TuneError(line, `unbalanced "]"`, [at, at + 1]);
       const items = stack.pop()!;
-      if (items.length === 0) throw new TuneError(line, `empty group "[]"`);
+      const open = opens.pop()!;
+      if (items.length === 0) throw new TuneError(line, `empty group "[]"`, [open, at + 1]);
       stack.at(-1)!.push({ kind: "group", items });
     } else {
-      stack.at(-1)!.push({ kind: "token", text: w, from: offset + m.index, to: offset + m.index + w.length });
+      stack.at(-1)!.push({ kind: "token", text: w, from: at, to: at + w.length });
     }
   }
-  if (stack.length !== 1) throw new TuneError(line, `unbalanced "["`);
+  if (stack.length !== 1) throw new TuneError(line, `unbalanced "["`, [opens.at(-1)!, opens.at(-1)! + 1]);
   return stack[0]!;
 }
 
-function parseBars(text: string, line: number, offset: number): Item[][] {
+/**
+ * Parses a voice line's bars. A bar that fails to parse is reported to
+ * `onError` and read as a rest, so the bars after it are still checked.
+ */
+function parseBars(text: string, line: number, offset: number, onError: (e: TuneError) => void): Item[][] {
   const parts = text.split("|");
   if (parts.length > 1 && parts.at(-1)!.trim() === "") parts.pop();
+  const end = offset + text.length;
   return parts.map((p) => {
-    if (p.trim() === "") throw new TuneError(line, "empty bar");
-    const bar = parseBar(p, line, offset);
+    let bar: Item[];
+    try {
+      if (p.trim() === "") {
+        // An empty bar is marked by the `|` that closes it, or the one before it at the end of the line.
+        const at = offset + p.length < end ? offset + p.length : offset - 1;
+        throw new TuneError(line, "empty bar", [at, at + 1]);
+      }
+      bar = parseBar(p, line, offset);
+    } catch (e) {
+      if (!(e instanceof TuneError)) throw e;
+      onError(e);
+      bar = [{ kind: "token", text: ".", from: offset, to: offset }];
+    }
     offset += p.length + 1;
     return bar;
   });
@@ -174,8 +212,17 @@ const midiAt = (idx: number, acc: number, p: Place) => p.tonicMidi + 12 * Math.f
 /** The diatonic index a degree (1–7) and its octave marks name. */
 const indexOf = (degree: number, marks: string) => degree - 1 + 7 * octaveMarks(marks);
 
-/** Returns the MIDI notes a sounding token produces. */
-function sound(text: string, line: number, p: Place): number[] {
+/** Returns the MIDI notes a sounding token produces, checking they are in MIDI's range. */
+function sound(text: string, line: number, p: Place, span: [number, number] | null): number[] {
+  const notes = spell(text, line, p, span);
+  for (const midi of notes) {
+    if (midi < LOWEST) throw new TuneError(line, `"${text}" is below ${pitchName(LOWEST)}, the lowest MIDI note`, span);
+    if (midi > HIGHEST) throw new TuneError(line, `"${text}" is above ${pitchName(HIGHEST)}, the highest MIDI note`, span);
+  }
+  return notes;
+}
+
+function spell(text: string, line: number, p: Place, span: [number, number] | null): number[] {
   let m = NOTE.exec(text);
   if (m) return [midiAt(indexOf(Number(m[2]), m[3]!), accidental(m[1]), p)];
 
@@ -183,7 +230,7 @@ function sound(text: string, line: number, p: Place): number[] {
   if (m) {
     const [, acc, numeral, quality, seventh, marks, bassAcc, bassDeg] = m;
     const upper = numeral === numeral!.toUpperCase();
-    if (quality === "h" && seventh !== "7") throw new TuneError(line, `"h" must be followed by "7" in "${text}"`);
+    if (quality === "h" && seventh !== "7") throw new TuneError(line, `"h" must be followed by "7" in "${text}"`, span);
     const triad =
       quality === "o" || quality === "h" ? [0, 3, 6] : quality === "+" ? [0, 4, 8] : upper ? [0, 4, 7] : [0, 3, 7];
     if (seventh === "maj7") triad.push(11);
@@ -202,12 +249,12 @@ function sound(text: string, line: number, p: Place): number[] {
   if (text.includes("+")) {
     return text.split("+").map((member) => {
       const mm = NOTE.exec(member);
-      if (!mm) throw new TuneError(line, `invalid stack "${text}"`);
+      if (!mm) throw new TuneError(line, `invalid stack "${text}"`, span);
       return midiAt(indexOf(Number(mm[2]), mm[3]!), accidental(mm[1]), p);
     });
   }
 
-  throw new TuneError(line, `unknown token "${text}"`);
+  throw new TuneError(line, `unknown token "${text}"`, span);
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +305,17 @@ export function compile(source: string): Song {
   const blocks: Block[] = [];
   let block: Block | null = null;
   /** Directives read since the last block: the change the next block starts with. */
-  let pending = { directives: new Set<string>(), firstLine: 0 };
+  let pending = { directives: new Set<string>(), firstLine: 0, span: null as [number, number] | null };
+  /** Every error found. Each is recorded and skipped, so one pass reports them all. */
+  const errors: TuneError[] = [];
+  const attempt = (fn: () => void) => {
+    try {
+      fn();
+    } catch (e) {
+      if (!(e instanceof TuneError)) throw e;
+      errors.push(e);
+    }
+  };
 
   const lines = source.split(/\r?\n/);
   let lineStart = 0;
@@ -273,35 +330,43 @@ export function compile(source: string): Song {
     }
     const text = stripComment(raw).trim();
     if (text === "") continue;
+    const textStart = offset + raw.indexOf(text);
+    const textSpan: [number, number] = [textStart, textStart + text.length];
 
     const vm = new RegExp(`^(${VOICE_NAME})\\s*:(.*)$`).exec(text);
     if (vm) {
       const name = vm[1]!;
-      if (DIRECTIVES.has(name)) throw new TuneError(lineNo, `"${name}" is a directive and cannot name a voice`);
-      if (!block) {
-        block = { voices: [], settings: snapshot(cur), directives: pending.directives, line: lineNo };
-        blocks.push(block);
-        pending = { directives: new Set(), firstLine: 0 };
-      }
-      if (block.voices.some((v) => v.name === name))
-        throw new TuneError(lineNo, `voice "${name}" appears twice in one block`);
-      if (vm[2]!.trim() === "") throw new TuneError(lineNo, "empty bar");
-      block.voices.push({ name, line: lineNo, bars: parseBars(vm[2]!, lineNo, offset + raw.indexOf(":") + 1) });
+      const nameSpan: [number, number] = [textStart, textStart + name.length];
+      attempt(() => {
+        if (DIRECTIVES.has(name)) throw new TuneError(lineNo, `"${name}" is a directive and cannot name a voice`, nameSpan);
+        if (!block) {
+          block = { voices: [], settings: snapshot(cur), directives: pending.directives, line: lineNo };
+          blocks.push(block);
+          pending = { directives: new Set(), firstLine: 0, span: null };
+        }
+        if (block.voices.some((v) => v.name === name))
+          throw new TuneError(lineNo, `voice "${name}" appears twice in one block`, nameSpan);
+        const colon = offset + raw.indexOf(":");
+        if (vm[2]!.trim() === "") throw new TuneError(lineNo, "empty bar", [colon, colon + 1]);
+        block.voices.push({ name, line: lineNo, bars: parseBars(vm[2]!, lineNo, colon + 1, (e) => errors.push(e)) });
+      });
       continue;
     }
 
     const word = text.split(/\s+/)[0]!;
-    if (block) {
-      if (DIRECTIVES.has(word))
-        throw new TuneError(lineNo, `"${word}" is inside a block; changes go between blocks, after a blank line`);
-      throw new TuneError(lineNo, `expected "Name: bars…", got "${text}"`);
-    }
-    parseDirective(text, lineNo, cur);
-    pending.directives.add(word);
-    pending.firstLine ||= lineNo;
+    attempt(() => {
+      if (block) {
+        if (DIRECTIVES.has(word))
+          throw new TuneError(lineNo, `"${word}" is inside a block; changes go between blocks, after a blank line`, textSpan);
+        throw new TuneError(lineNo, `expected "Name: bars…", got "${text}"`, textSpan);
+      }
+      if (!pending.firstLine) pending = { ...pending, firstLine: lineNo, span: textSpan };
+      parseDirective(text, lineNo, cur, textSpan);
+      pending.directives.add(word);
+    });
   }
   if (blocks.length > 0 && pending.firstLine)
-    throw new TuneError(pending.firstLine, "a change must be followed by a block");
+    errors.push(new TuneError(pending.firstLine, "a change must be followed by a block", pending.span));
 
   const voices: string[] = [];
   for (const b of blocks) for (const v of b.voices) if (!voices.includes(v.name)) voices.push(v.name);
@@ -327,7 +392,8 @@ export function compile(source: string): Song {
   for (const [blockIndex, b] of blocks.entries()) {
     const h = b.settings;
     const barLen = q(h.time[0] * 4 * TICKS_PER_QUARTER, h.time[1]);
-    const nBars = Math.max(...b.voices.map((v) => v.bars.length));
+    // A block whose every voice line failed to parse has no bars.
+    const nBars = Math.max(0, ...b.voices.map((v) => v.bars.length));
     for (const name of voices) {
       const vl = b.voices.find((v) => v.name === name);
       const out = slots.get(name)!;
@@ -386,7 +452,7 @@ export function compile(source: string): Song {
       } else {
         const h = blocks[slot.block]!.settings;
         const tonicMidi = 12 * ((h.octaves.get(name) ?? defaultOctave(name)) + 1) + h.tonicPc;
-        notes = sound(slot.text, slot.line, { tonicMidi, scale: h.scale });
+        attempt(() => (notes = sound(slot.text, slot.line, { tonicMidi, scale: h.scale }, slot.span)));
         flush();
         sounding = { start: slot.start, end: slot.end, notes, slot: slotInfos.length };
       }
@@ -405,6 +471,12 @@ export function compile(source: string): Song {
       });
     }
     flush();
+  }
+
+  if (errors.length > 0) {
+    errors.sort((a, b) => a.line - b.line || (a.span?.[0] ?? 0) - (b.span?.[0] ?? 0));
+    errors[0]!.errors = errors;
+    throw errors[0];
   }
 
   events.sort(

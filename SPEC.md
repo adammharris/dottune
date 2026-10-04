@@ -58,6 +58,9 @@ A block can be read on its own: its pitches depend only on its tokens and the se
 | `octave <voice> <n>` | `octave LH 2` | `LH` → 3, all others → 4 |
 
 - `<tonic>` is a letter `A`–`G` with optional `#` or `b`.
+- `<bpm>` is a number from 4 to 1000; decimals are allowed.
+- In `time <n>/<d>`, `<n>` is a whole number from 1 to 64 and `<d>` is a power of two from 1 to 64.
+- In `octave <voice> <n>`, `<voice>` cannot be a directive word, and `<n>` is a whole number (it may be negative).
 - `[mode]` is one of `major`, `minor`, `ionian`, `dorian`, `phrygian`, `lydian`, `mixolydian`, `aeolian`, `locrian`. `major` = `ionian`, `minor` = `aeolian` (natural minor).
 - Repeating a directive in the same header or change: the last one wins (for `octave`, per voice).
 - An unknown directive is an error.
@@ -156,6 +159,8 @@ So `7 1` falls a seventh (`7 1'` rises a step), and `1 5,` drops a fourth.
 
 Middle C is `C4` = MIDI 60. In `key C major`, `RH`'s `5` is G4; in `key A minor`, `RH`'s `1` is A4 and `3` is C5.
 
+Every pitch a token sounds must lie in MIDI's range, `C-1` (0) to `G9` (127). A note, stack, or chord with any pitch outside it is an error.
+
 ---
 
 ## 5. Harmony
@@ -228,7 +233,9 @@ The header's settings are not listed; `octave` changes appear only through the p
 ## 7. Errors
 
 Errors are reported with a 1-based line number.
-At minimum, these are errors: unknown token, unknown directive, directive inside a block, directive after the last block, reserved voice name, invalid key, empty bar, empty group, unbalanced brackets, duplicate voice in a block, malformed voice line.
+At minimum, these are errors: unknown token, unknown directive, directive inside a block, directive after the last block, reserved voice name (in a voice line or an `octave` directive), invalid key, tempo out of range, invalid time signature, pitch out of range, empty bar, empty group, unbalanced brackets, duplicate voice in a block, malformed voice line.
+
+A file may contain several errors. An implementation may report them all, but must report the one on the lowest line; the conformance examples below check that line.
 
 ---
 
@@ -621,6 +628,61 @@ line 2
 ```tune
 key H major
 RH: 1 |
+```
+
+```error
+line 1
+```
+
+A tempo too slow for MIDI:
+
+```tune
+tempo 2
+RH: 1 |
+```
+
+```error
+line 1
+```
+
+A beat that is not a power of two:
+
+```tune
+time 4/3
+RH: 1 |
+```
+
+```error
+line 1
+```
+
+A pitch above `G9`:
+
+```tune
+RH: 1 2 |
+RH2: 1'''''''' |
+```
+
+```error
+line 2
+```
+
+A reserved name in an `octave` directive:
+
+```tune
+octave key 3
+RH: 1 |
+```
+
+```error
+line 1
+```
+
+With several errors, the lowest line is the one checked:
+
+```tune
+RH: 1 x |
+LH: I [ |
 ```
 
 ```error

@@ -77,11 +77,19 @@ export interface Change {
 }
 
 export class TuneError extends Error {
+  /**
+   * Every error in the source, in order of position, when this one was thrown
+   * by `compile` (it is the first of them); otherwise just this one.
+   */
+  errors: TuneError[] = [this];
+
   constructor(
     readonly line: number,
-    message: string,
+    readonly reason: string,
+    /** Character offsets in the source of the text at fault, where known. */
+    readonly span: [number, number] | null = null,
   ) {
-    super(`line ${line}: ${message}`);
+    super(`line ${line}: ${reason}`);
     this.name = "TuneError";
   }
 }

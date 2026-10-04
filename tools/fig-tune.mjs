@@ -47,7 +47,9 @@ function validate(input) {
   } catch (e) {
     if (!(e instanceof TuneError)) throw e;
     const lines = input.split("\n");
-    const offset = lines.slice(0, e.line - 1).reduce((n, l) => n + byteLength(l) + 1, 0);
+    const offset = e.span
+      ? byteLength(input.slice(0, e.span[0]))
+      : lines.slice(0, e.line - 1).reduce((n, l) => n + byteLength(l) + 1, 0);
     throw new LanguageError(e.message, offset);
   }
 }
