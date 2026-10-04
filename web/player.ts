@@ -19,7 +19,11 @@ interface Timed {
  */
 export class Player {
   private ctx: AudioContext | null = null;
+  /** Where playback goes; replaced on every start and seek, so the notes already scheduled can be faded out. */
   private master: GainNode | null = null;
+  private compressor: DynamicsCompressorNode | null = null;
+  /** True while `play` waits for the audio context to resume. */
+  private starting = false;
   private previewOut: GainNode | null = null;
   private song: Song | null = null;
   private map: TempoMap | null = null;
@@ -35,7 +39,8 @@ export class Player {
   private pausedAt = 0;
 
   loop = true;
-  onStop: (() => void) | null = null;
+  /** Called whenever playback starts or stops, however it came about. */
+  onChange: ((playing: boolean) => void) | null = null;
 
   get playing(): boolean {
     return this.timer !== null;
@@ -75,21 +80,19 @@ export class Player {
   }
 
   async play(): Promise<void> {
-    if (this.playing || !this.song || !this.map) return;
-    this.ctx ??= new AudioContext();
-    await this.ctx.resume();
-
-    const comp = this.ctx.createDynamicsCompressor();
-    comp.connect(this.ctx.destination);
-    this.master = this.ctx.createGain();
-    this.master.gain.value = 0.5;
-    this.master.connect(comp);
-
-    this.anchorTime = this.ctx.currentTime + 0.05;
-    this.anchorSec = this.map.seconds(this.pausedAt);
-    this.cursor = this.anchorSec;
+    if (this.playing || this.starting || !this.song || !this.map) return;
+    this.starting = true;
+    try {
+      this.ctx ??= new AudioContext();
+      await this.ctx.resume();
+    } finally {
+      this.starting = false;
+    }
+    if (this.playing) return;
+    this.restartFrom(this.pausedAt);
     this.timer = setInterval(() => this.schedule(), INTERVAL_MS);
     this.schedule();
+    this.onChange?.(true);
   }
 
   stop(): void {
@@ -97,17 +100,41 @@ export class Player {
     this.pausedAt = this.position();
     clearInterval(this.timer!);
     this.timer = null;
-    const master = this.master!;
-    master.gain.setTargetAtTime(0, this.ctx!.currentTime, 0.02);
-    setTimeout(() => master.disconnect(), 200);
-    this.onStop?.();
+    this.fadeOut();
+    this.onChange?.(false);
   }
 
+  /** Moves the playhead. Playback, if running, carries on from the new place. */
   seek(tick: number): void {
-    const wasPlaying = this.playing;
-    if (wasPlaying) this.stop();
     this.pausedAt = Math.max(0, Math.min(tick, (this.song?.length ?? 1) - 1));
-    if (wasPlaying) void this.play();
+    if (!this.playing) return;
+    this.fadeOut();
+    this.restartFrom(this.pausedAt);
+    this.schedule();
+  }
+
+  /** Points a fresh output at `tick`; nothing is scheduled on it yet. */
+  private restartFrom(tick: number): void {
+    const ctx = this.ctx!;
+    if (!this.compressor) {
+      this.compressor = ctx.createDynamicsCompressor();
+      this.compressor.connect(ctx.destination);
+    }
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.5;
+    this.master.connect(this.compressor);
+    this.anchorTime = ctx.currentTime + 0.05;
+    this.anchorSec = this.map!.seconds(tick);
+    this.cursor = this.anchorSec;
+  }
+
+  /** Silences everything scheduled on the current output. */
+  private fadeOut(): void {
+    const master = this.master;
+    if (!master) return;
+    master.gain.setTargetAtTime(0, this.ctx!.currentTime, 0.02);
+    setTimeout(() => master.disconnect(), 200);
+    this.master = null;
   }
 
   private schedule(): void {

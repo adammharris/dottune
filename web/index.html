@@ -8,18 +8,27 @@
   </head>
   <body>
     <header>
-      <button id="play" title="Play / stop (⌘↵)">▶ Play</button>
-      <label><input id="loop" type="checkbox" checked /> Loop</label>
-      <button id="export" title="Download as a Standard MIDI File">⬇ MIDI</button>
-      <select id="examples" aria-label="Load example">
-        <option value="">Load example…</option>
-      </select>
-      <span class="sep"></span>
-      <span id="scope" title="Select a note to edit the settings for its block"></span>
-      <label>Key <select id="tonic"></select><select id="mode"></select></label>
-      <label>Tempo <input id="tempo" type="number" min="20" max="320" step="1" /></label>
-      <label>Time <select id="time"></select></label>
-      <span id="octaves" title="Octave each part's first note starts in"></span>
+      <div class="group">
+        <button id="play" title="Play / stop (⌘↵)">▶ Play</button>
+        <label><input id="loop" type="checkbox" checked /> Loop</label>
+        <span class="sep"></span>
+        <input id="name" type="text" aria-label="File name" title="Name for Save and MIDI export" spellcheck="false" autocomplete="off" />
+        <button id="open" title="Open a .tune file (⌘O), or drop one on the editor">Open</button>
+        <input id="file" type="file" accept=".tune,.txt,text/plain" hidden />
+        <button id="save" title="Download as a .tune file (⌘S)">Save</button>
+        <button id="export" title="Download as a Standard MIDI File">⬇ MIDI</button>
+        <button id="share" title="Copy a link that opens this tune">Share</button>
+        <select id="examples" aria-label="Load example">
+          <option value="">Load example…</option>
+        </select>
+      </div>
+      <div class="group">
+        <span id="scope" title="Select a note to edit the settings for its block"></span>
+        <label>Key <select id="tonic"></select><select id="mode"></select></label>
+        <label>Tempo <input id="tempo" type="number" min="20" max="320" step="1" /></label>
+        <label>Time <select id="time"></select></label>
+        <span id="octaves" title="Octave each part's first note starts in"></span>
+      </div>
     </header>
     <main>
       <section id="editor">

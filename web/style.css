@@ -29,7 +29,7 @@ body {
 
 header {
   display: flex;
-  gap: 12px;
+  gap: 8px 20px;
   align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid #292e42;
@@ -42,7 +42,7 @@ select {
   background: #292e42;
   border: 1px solid #3b4261;
   border-radius: 6px;
-  padding: 4px 12px;
+  padding: 4px 10px;
   cursor: pointer;
 }
 
@@ -55,8 +55,16 @@ button:hover {
   color: var(--panel);
 }
 
-header {
+header,
+header .group {
   flex-wrap: wrap;
+}
+
+/* The header wraps a whole group at a time: settings move down together. */
+header .group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 header label {
@@ -78,6 +86,27 @@ header input[type="number"] {
 
 header input[type="number"] {
   width: 4.5em;
+}
+
+#examples {
+  max-width: 10em;
+}
+
+#name {
+  width: 9em;
+  font: 13px var(--mono);
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+#name:hover,
+#name:focus {
+  border-color: #3b4261;
+  background: #292e42;
+  outline: none;
 }
 
 #scope {
@@ -133,6 +162,7 @@ main {
   color: var(--panel);
   background: var(--error);
   border-radius: 3px;
+  cursor: help;
 }
 
 #code {
@@ -154,9 +184,19 @@ main {
 
 #highlight mark {
   color: transparent;
+  border-radius: 2px;
+}
+
+#highlight mark.sel {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
   box-shadow: 0 0 0 1px var(--accent);
-  border-radius: 2px;
+}
+
+#highlight mark.err {
+  background: color-mix(in srgb, var(--error) 22%, transparent);
+  text-decoration: underline wavy var(--error);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
 }
 
 #source {
@@ -220,4 +260,5 @@ footer {
 
 footer.error {
   color: var(--error);
+  cursor: pointer;
 }
