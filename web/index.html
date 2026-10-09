@@ -11,6 +11,7 @@
       <div class="group">
         <button id="play" title="Play / stop (⌘↵)">▶ Play</button>
         <label><input id="loop" type="checkbox" checked /> Loop</label>
+        <label title="A lane for each voice, with its own pitch range (L)"><input id="lanes" type="checkbox" checked /> Lanes</label>
         <span class="sep"></span>
         <input id="name" type="text" aria-label="File name" title="Name for Save and MIDI export" spellcheck="false" autocomplete="off" />
         <button id="open" title="Open a .tune file (⌘O), or drop one on the editor">Open</button>
@@ -42,8 +43,8 @@
         <canvas id="roll" tabindex="0"></canvas>
         <p id="hint">
           Click a note to select it and play from there · <kbd>↑</kbd><kbd>↓</kbd> step · <kbd>⇧↑</kbd><kbd>⇧↓</kbd> octave · <kbd>1</kbd>–<kbd>7</kbd> degree ·
-          <kbd>#</kbd> <kbd>b</kbd> · <kbd>.</kbd> rest · <kbd>-</kbd> hold · <kbd>S</kbd> split · <kbd>←</kbd><kbd>→</kbd>
-          <kbd>Tab</kbd> move · <kbd>⌘Z</kbd> undo · <kbd>Space</kbd> play · <kbd>⇧</kbd>-click move playhead only
+          <kbd>#</kbd> <kbd>b</kbd> · <kbd>.</kbd> rest · <kbd>-</kbd> hold · <kbd>S</kbd> split · drag a note's edges or <kbd>⇧←</kbd><kbd>⇧→</kbd> length · <kbd>←</kbd><kbd>→</kbd>
+          <kbd>Tab</kbd> move · <kbd>⌘Z</kbd> undo · <kbd>Space</kbd> play · <kbd>⌘</kbd>-scroll zoom · <kbd>[</kbd><kbd>]</kbd> block · <kbd>0</kbd> fit · <kbd>L</kbd> lanes · <kbd>⇧</kbd>-click move playhead only
         </p>
       </section>
     </main>

@@ -1,7 +1,7 @@
 import { compile, defaultOctave } from "../src/compile";
 import type { Path } from "../src/edit";
-import { moveBy, setDegree, split, toggleAccidental, toHold, toRest, type TokenEdit } from "../src/edit";
-import { applyEdits, applyMusicalEdit, loadFig } from "../src/fig";
+import { cutTick, lengthen, moveBy, resize, restart, setDegree, snapCut, snapStart, split, toggleAccidental, toHold, toRest, type TokenEdit } from "../src/edit";
+import { applyEdits, applyMusicalEdit, applyTokenEdits, loadFig } from "../src/fig";
 import { writeMidi } from "../src/midi";
 import { TuneError, type SlotInfo, type Song } from "../src/types";
 import { EXAMPLES } from "./examples";
@@ -11,6 +11,7 @@ import { readShareHash, shareHash } from "./share";
 
 const STORAGE_KEY = "tune:source";
 const NAME_KEY = "tune:name";
+const LANES_KEY = "tune:lanes";
 const TONICS = ["C", "C#", "Db", "D", "Eb", "E", "F", "F#", "Gb", "G", "Ab", "A", "Bb", "B"];
 const MODES = ["major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "locrian", "ionian", "aeolian"];
 const TIMES = ["2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "9/8", "12/8"];
@@ -22,6 +23,7 @@ const highlight = $<HTMLPreElement>("highlight");
 const status = $<HTMLElement>("status");
 const playButton = $<HTMLButtonElement>("play");
 const loopBox = $<HTMLInputElement>("loop");
+const lanesBox = $<HTMLInputElement>("lanes");
 const examples = $<HTMLSelectElement>("examples");
 const canvas = $<HTMLCanvasElement>("roll");
 const tonicSel = $<HTMLSelectElement>("tonic");
@@ -294,6 +296,7 @@ let selected: number | null = null;
 function select(index: number | null): void {
   selected = index;
   selectedKey = index === null || !song ? null : keyOf(song.slots[index]!);
+  if (index !== null && song) roll.reveal(song.slots[index]!.start, song.slots[index]!.end);
   describeSelection();
   if (song) syncSettings(song);
   renderHighlight(document.activeElement !== source);
@@ -353,14 +356,225 @@ function editSelected(op: (song: Song, index: number) => TokenEdit[], then?: (s:
   if (now?.midi.length) void player.preview(now.midi, song.voices.indexOf(now.voice));
 }
 
+// ── resizing ────────────────────────────────────────────────────────────────
+
+// Dragging a note's right edge changes its length; its left edge, where it starts. The end snaps to the slot
+// under the pointer, split into halves (thirds with ⌥) as finely as the zoom
+// allows; the roll and status bar show the result until the button is let go.
+
+interface Resizing {
+  /** The song and source the drag started from; every preview is computed from them. */
+  song: Song;
+  source: string;
+  index: number;
+  side: "start" | "end";
+  /** Where the note starts in the preview, to find it there. */
+  start: number;
+  preview: { source: string; song: Song } | null;
+}
+let resizing: Resizing | null = null;
+
+const sounds = (s: SlotInfo) => s.kind === "note" || s.kind === "stack" || s.kind === "chord";
+
+/** The note, stack, or chord a slot sounds as part of: itself, or the one its holds continue. */
+function onsetOf(song: Song, index: number): number | null {
+  const voice = song.slots[index]!.voice;
+  for (let i = index; i >= 0 && song.slots[i]!.voice === voice; i--) {
+    const s = song.slots[i]!;
+    if (sounds(s)) return i;
+    if (s.kind !== "hold") return null;
+  }
+  return null;
+}
+
+/** The slot sounding from `start` in `voice`, after an edit that may have rewritten its path. */
+const onsetAt = (song: Song, voice: string, start: number) =>
+  song.slots.findIndex((s) => s.voice === voice && Math.abs(s.start - start) <= 1 && sounds(s));
+
+/** How many equal parts a slot may split into: powers of 2 (or 3), each at least 14px wide, up to 3 deep. */
+function partsFor(base: number) {
+  return (s: SlotInfo) => {
+    let n = 1;
+    while (n < base ** 3 && roll.width((s.end - s.start) / (n * base)) >= 14) n *= base;
+    return n;
+  };
+}
+
+/** A bar of `src` as written, brackets and all. */
+function barText(song: Song, src: string, block: number, voice: string, bar: number): string {
+  const spans = song.slots.filter((s) => s.voice === voice && s.block === block && s.bar === bar && s.span).map((s) => s.span!);
+  if (!spans.length) return "";
+  let from = Math.min(...spans.map((s) => s[0]));
+  let to = Math.max(...spans.map((s) => s[1]));
+  while (from > 0 && /[\[\s]/.test(src[from - 1]!)) from--;
+  while (to < src.length && /[\]\s]/.test(src[to]!)) to++;
+  return src.slice(from, to).trim();
+}
+
+function dragResize(clientX: number, thirds: boolean): void {
+  if (!resizing) return;
+  const { song: base, source: src, index, side } = resizing;
+  const tick = roll.tickAt(clientX);
+  const parts = partsFor(thirds ? 3 : 2);
+  const cut = tick === null ? null : side === "end" ? snapCut(base, index, tick, parts) : snapStart(base, index, tick, parts);
+  const edits = !cut ? [] : side === "end" ? resize(base, index, cut) : restart(base, index, cut);
+  resizing.preview = null;
+  resizing.start = cut && side === "start" ? cutTick(base, cut) : base.slots[index]!.start;
+  if (edits.length === 0) return describeSelection();
+  try {
+    const next = applyTokenEdits(src, edits);
+    const nextSong = compile(next);
+    resizing.preview = { source: next, song: nextSong };
+    const bars = [...new Set(edits.map((e) => e.path.slice(1, 4).join("|")))].map((key) => {
+      const [block, voice, bar] = key.split("|");
+      return `bar ${Number(bar) + 1}: <b>${escapeHtml(barText(nextSong, next, Number(block), voice!, Number(bar)))}</b>`;
+    });
+    setStatus(`${escapeHtml(base.slots[index]!.voice)} → ${bars.join(" · ")}   (⌥ thirds · esc cancels)`, "html");
+  } catch {
+    describeSelection();
+  }
+}
+
+function endResize(apply: boolean): void {
+  if (!resizing) return;
+  const { song: base, index, preview, start } = resizing;
+  resizing = null;
+  const s = base.slots[index]!;
+  if (apply && preview && tryEdit(() => preview.source) && song) {
+    const i = onsetAt(song, s.voice, start);
+    select(i === -1 ? null : i);
+  } else {
+    describeSelection();
+  }
+}
+
+/** Shift+←/→: shrinks or grows the selected note by a slot. */
+function lengthenSelected(dir: 1 | -1): void {
+  if (!song || selected === null) return;
+  const index = onsetOf(song, selected);
+  if (index === null) return;
+  const s = song.slots[index]!;
+  const edits = lengthen(song, index, dir);
+  const current = song;
+  if (edits.length === 0 || !tryEdit(() => applyTokenEdits(source.value, edits))) return;
+  if (song !== current) {
+    const i = onsetAt(song, s.voice, s.start);
+    select(i === -1 ? null : i);
+  }
+}
+
+window.addEventListener("mousemove", (e) => {
+  if (resizing) return dragResize(e.clientX, e.altKey);
+  if (stripDrag !== null && song) {
+    const tick = roll.stripAt(e.clientX, canvas.getBoundingClientRect().top);
+    if (tick !== null) centreOn(tick, stripDrag);
+    return;
+  }
+  if (e.target === canvas && song) canvas.style.cursor = roll.edgeAt(song, e.clientX, e.clientY) ? "ew-resize" : "";
+});
+window.addEventListener("mouseup", () => {
+  stripDrag = null;
+  endResize(true);
+});
+window.addEventListener("keydown", (e) => {
+  if (resizing && e.key === "Escape") {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    endResize(false);
+  }
+}, true);
+
+// ── zoom ────────────────────────────────────────────────────────────────────
+
+// ⌘-scroll or pinch zooms about the pointer, scrolling pans, and the strip
+// across the top shows the whole song: click or drag it to move the view,
+// double-click a block to fit it. [ and ] step through the blocks, 0 fits all.
+
+/** While the overview strip is being dragged: the view's span, so dragging only pans. */
+let stripDrag: number | null = null;
+
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) {
+      const tick = roll.tickAt(e.clientX);
+      // A pinch arrives as ctrl+wheel with small deltas; a mouse wheel with large ones.
+      if (tick !== null) roll.zoom(Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.01)), tick);
+    } else {
+      roll.pan(Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
+    }
+  },
+  { passive: false },
+);
+
+/** Centres the view on `tick`, keeping its width. */
+function centreOn(tick: number, span: number): void {
+  roll.show(tick - span / 2, tick + span / 2);
+}
+
+/** The block at the left edge of the view. */
+function blockInView(): number {
+  const v = roll.shown();
+  if (!song || !v) return 0;
+  return Math.max(0, song.blocks.findIndex((b) => v.start + 1 >= b.start && v.start + 1 < b.end));
+}
+
+/** Fits block `i` to the view, or the whole song if `i` is past either end. */
+function showBlock(i: number): void {
+  const b = song?.blocks[i];
+  if (b) roll.show(b.start, b.end);
+  else roll.showAll();
+}
+
+/** [ and ]: the previous or next block; from a view that is not a block, the block at its left edge. */
+function stepBlock(dir: 1 | -1): void {
+  if (!song || song.blocks.length === 0) return;
+  const v = roll.shown()!;
+  const i = blockInView();
+  const b = song.blocks[i]!;
+  const fitted = Math.abs(v.start - b.start) < 1 && Math.abs(v.end - b.end) < 1;
+  const next = fitted ? i + dir : i;
+  if (next >= 0 && next < song.blocks.length) showBlock(next);
+}
+
+canvas.addEventListener("dblclick", (e) => {
+  if (!song) return;
+  const tick = roll.stripAt(e.clientX, e.clientY);
+  if (tick === null) return;
+  const i = song.blocks.findIndex((b) => tick >= b.start && tick < b.end);
+  const b = song.blocks[i];
+  const v = roll.shown()!;
+  // Double-clicking the block already fitted goes back to the whole song.
+  if (!b || (Math.abs(v.start - b.start) < 1 && Math.abs(v.end - b.end) < 1)) roll.showAll();
+  else showBlock(i);
+});
+
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
   if (!song) return;
+  const stripTick = roll.stripAt(e.clientX, e.clientY);
+  if (stripTick !== null) {
+    e.preventDefault();
+    const v = roll.shown()!;
+    if (v.end - v.start < song.length) {
+      stripDrag = v.end - v.start;
+      centreOn(stripTick, stripDrag);
+    }
+    return;
+  }
+  const edge = e.shiftKey || compiled !== source.value ? null : roll.edgeAt(song, e.clientX, e.clientY);
+  if (edge) {
+    e.preventDefault();
+    select(edge.event.slot);
+    resizing = { song, source: source.value, index: edge.event.slot, side: edge.side, start: edge.event.start, preview: null };
+    return;
+  }
   const p = roll.pointAt(e.clientX, e.clientY);
   if (!p) return;
   // A click moves the playhead: to the start of the note clicked, else to the click.
   // Shift-click moves it without changing the selection.
-  const slot = e.shiftKey ? null : roll.slotAt(song, p.tick, p.midi);
+  const slot = e.shiftKey ? null : roll.slotAt(song, p.tick, p.midi, p.voice);
   const s = slot !== null ? song.slots[slot] : undefined;
   player.seek(s ? s.start : p.tick);
   if (e.shiftKey) return;
@@ -385,6 +599,7 @@ canvas.addEventListener("keydown", (e) => {
         return editSelected((s, i) => moveBy(s, i, -steps)), true;
       case "ArrowLeft":
       case "ArrowRight": {
+        if (e.shiftKey) return lengthenSelected(e.key === "ArrowLeft" ? -1 : 1), true;
         const n = neighbour(e.key === "ArrowLeft" ? -1 : 1);
         if (n !== null) select(n);
         return true;
@@ -411,6 +626,36 @@ canvas.addEventListener("keydown", (e) => {
         return select(null), true;
     }
     if (/^[1-7]$/.test(e.key)) return editSelected((s, i) => setDegree(s, i, Number(e.key) - 1)), true;
+    return false;
+  })();
+  if (handled) e.preventDefault();
+});
+
+canvas.addEventListener("keydown", (e) => {
+  const zoomKey = e.metaKey || e.ctrlKey;
+  const at = () => {
+    const v = roll.shown();
+    const s = song && selected !== null ? song.slots[selected] : undefined;
+    return s ? s.start : v ? (v.start + v.end) / 2 : 0;
+  };
+  const handled = (() => {
+    if (zoomKey) {
+      if (e.key === "=" || e.key === "+") return roll.zoom(1.5, at()), true;
+      if (e.key === "-") return roll.zoom(1 / 1.5, at()), true;
+      if (e.key === "0") return roll.showAll(), true;
+      return false;
+    }
+    switch (e.key) {
+      case "[":
+        return stepBlock(-1), true;
+      case "]":
+        return stepBlock(1), true;
+      case "0":
+        return roll.showAll(), true;
+      case "l":
+      case "L":
+        return setLanes(!roll.lanes), true;
+    }
     return false;
   })();
   if (handled) e.preventDefault();
@@ -542,6 +787,14 @@ document.addEventListener("keydown", (e) => {
 
 loopBox.addEventListener("change", () => (player.loop = loopBox.checked));
 
+/** Gives each voice its own lane, or puts them all in one. */
+function setLanes(on: boolean): void {
+  roll.lanes = lanesBox.checked = on;
+  localStorage.setItem(LANES_KEY, on ? "1" : "0");
+}
+lanesBox.addEventListener("change", () => setLanes(lanesBox.checked));
+setLanes(localStorage.getItem(LANES_KEY) !== "0");
+
 // ── files ───────────────────────────────────────────────────────────────────
 
 /** The name Save and MIDI export use, without an extension. */
@@ -622,7 +875,14 @@ examples.addEventListener("change", () => {
 });
 
 function frame(): void {
-  roll.draw(song, player.position(), errors.length > 0, selected);
+  if (player.playing) roll.follow(player.position());
+  const preview = resizing?.preview;
+  if (preview) {
+    const s = resizing!.song.slots[resizing!.index]!;
+    roll.draw(preview.song, player.position(), false, onsetAt(preview.song, s.voice, resizing!.start));
+  } else {
+    roll.draw(song, player.position(), errors.length > 0, selected);
+  }
   requestAnimationFrame(frame);
 }
 
