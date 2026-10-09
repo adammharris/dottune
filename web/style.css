@@ -226,6 +226,9 @@ main {
   min-height: 0;
   cursor: pointer;
   outline: none;
+  /* Drags on the roll are its own: no text selection, no touch scrolling. */
+  user-select: none;
+  touch-action: none;
 }
 
 #roll:focus-visible {

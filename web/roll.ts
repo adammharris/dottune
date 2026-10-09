@@ -1,50 +1,26 @@
-import { TICKS_PER_QUARTER, type NoteEvent, type Song } from "../src/types";
+import { TICKS_PER_QUARTER, type Song } from "../src/types";
+import * as geo from "./geometry";
+import { KEYBOARD_W, LANE_GAP, STRIP_H, type Edge, type Layout, type Point, type View } from "./geometry";
 
-const KEYBOARD_W = 44;
-/** The overview strip across the top: the whole song, its blocks, and the part in view. */
-const STRIP_H = 20;
-/** The narrowest view: one quarter note across the roll. */
-const MIN_SPAN = TICKS_PER_QUARTER;
 const COLORS = ["#7aa2f7", "#e0af68", "#9ece6a", "#f7768e", "#bb9af7", "#7dcfff"];
 const BLACK = new Set([1, 3, 6, 8, 10]);
-/** The gap between lanes. */
-const LANE_GAP = 2;
 
 export function voiceColor(i: number): string {
   return COLORS[i % COLORS.length]!;
 }
 
-/** A band of pitch rows: one voice's in lanes, or every voice's when combined. */
-interface Lane {
-  /** The voice drawn here, or null for all of them. */
-  voice: string | null;
-  lo: number;
-  hi: number;
-  top: number;
-  bottom: number;
-}
-
-interface Layout {
-  lanes: Lane[];
-  /** The pitch range across every lane, for the overview strip. */
-  lo: number;
-  hi: number;
-  rowH: number;
-  rollW: number;
-  length: number;
-  /** The ticks in view. */
-  start: number;
-  end: number;
-}
-
-/** Piano roll with a keyboard down the left edge and an overview strip across the top. */
+/**
+ * Piano roll with a keyboard down the left edge and an overview strip across
+ * the top. It keeps the view and draws; where things are is `geometry`'s.
+ */
 export class PianoRoll {
   /** Whether each voice gets its own lane, with its own pitch range, rather than sharing one. */
   lanes = true;
   private ctx: CanvasRenderingContext2D;
+  /** The roll as last drawn: what screen points mean. */
   private layout: Layout | null = null;
   /** The ticks in view; null shows the whole song. */
-  private view: { start: number; end: number } | null = null;
+  private view: View | null = null;
   /** The playhead as of the last `follow`. */
   private lastTick = 0;
 
@@ -52,191 +28,72 @@ export class PianoRoll {
     this.ctx = canvas.getContext("2d")!;
   }
 
-  /**
-   * The tick, pitch, and lane under a client point, or null if outside the
-   * roll. `voice` is the lane's voice, or null where every voice shares one.
-   */
-  pointAt(clientX: number, clientY: number): { tick: number; midi: number; voice: string | null } | null {
-    const l = this.layout;
-    if (!l) return null;
+  /** A client point in the roll's own coordinates. */
+  private local(clientX: number, clientY: number): [number, number] {
     const rect = this.canvas.getBoundingClientRect();
-    const x = clientX - rect.left - KEYBOARD_W;
-    const y = clientY - rect.top;
-    if (x < 0 || y < STRIP_H) return null;
-    // A point in the gap below a lane belongs to it.
-    const lane = l.lanes.find((ln) => y < ln.bottom + LANE_GAP) ?? l.lanes.at(-1)!;
-    const midi = Math.max(lane.lo, lane.hi - Math.floor((y - lane.top) / l.rowH));
-    return { tick: l.start + (x / l.rollW) * (l.end - l.start), midi, voice: lane.voice };
+    return [clientX - rect.left, clientY - rect.top];
+  }
+
+  pointAt(clientX: number, clientY: number): Point | null {
+    return this.layout && geo.pointAt(this.layout, ...this.local(clientX, clientY));
   }
 
   /** The tick under a client x, clamped to the part in view. */
   tickAt(clientX: number): number | null {
-    const l = this.layout;
-    if (!l) return null;
-    const x = clientX - this.canvas.getBoundingClientRect().left - KEYBOARD_W;
-    return Math.min(l.end, Math.max(l.start, l.start + (x / l.rollW) * (l.end - l.start)));
+    return this.layout && geo.tickAt(this.layout, this.local(clientX, 0)[0]);
   }
 
-  /** The tick of the whole song under a client point in the overview strip, or null if outside it. */
   stripAt(clientX: number, clientY: number): number | null {
-    const l = this.layout;
-    if (!l) return null;
-    const rect = this.canvas.getBoundingClientRect();
-    if (clientY - rect.top >= STRIP_H) return null;
-    const x = clientX - rect.left - KEYBOARD_W;
-    return Math.min(l.length, Math.max(0, (x / l.rollW) * l.length));
+    return this.layout && geo.stripAt(this.layout, ...this.local(clientX, clientY));
+  }
+
+  edgeAt(song: Song, clientX: number, clientY: number): Edge | null {
+    return this.layout && geo.edgeAt(song, this.layout, ...this.local(clientX, clientY));
   }
 
   /** How wide `ticks` is on screen, in CSS pixels. */
   width(ticks: number): number {
-    const l = this.layout;
-    return l ? (ticks / (l.end - l.start)) * l.rollW : 0;
+    return this.layout ? geo.widthOf(this.layout, ticks) : 0;
   }
 
-  /** The ticks in view now, and the song's length: the stored view, not the last frame drawn, so events between frames add up. */
-  private current(): { start: number; end: number; length: number } | null {
-    const l = this.layout;
-    if (!l) return null;
-    return { start: this.view?.start ?? 0, end: this.view?.end ?? l.length, length: l.length };
-  }
-
-  /** Sets the view to `span` ticks from `start`, kept within the song; the whole song if `span` covers it. */
-  private place(start: number, span: number): void {
-    const length = this.layout?.length ?? 0;
-    if (length === 0) return;
-    span = Math.min(length, Math.max(MIN_SPAN, span));
-    start = Math.min(length - span, Math.max(0, start));
-    this.view = span >= length ? null : { start, end: start + span };
-  }
+  // The view changes from the stored view, not the last frame drawn, so events between frames add up.
 
   /** The ticks in view. */
-  shown(): { start: number; end: number } | null {
-    const v = this.current();
-    return v && { start: v.start, end: v.end };
+  shown(): View | null {
+    return this.layout && geo.shown(this.view, this.layout.length);
   }
 
   /** Shows `start`–`end`, kept within the song and no narrower than a quarter note. */
   show(start: number, end: number): void {
-    const span = Math.max(MIN_SPAN, end - start);
-    this.place((start + end) / 2 - span / 2, span);
+    if (this.layout) this.view = geo.fit(this.layout.length, start, end);
   }
 
-  /** Shows the whole song. */
   showAll(): void {
     this.view = null;
   }
 
   /** Zooms by `factor` (above 1 zooms in), keeping `tick` where it is on screen. */
   zoom(factor: number, tick: number): void {
-    const v = this.current();
-    if (!v) return;
-    const span = Math.min(v.length, Math.max(MIN_SPAN, (v.end - v.start) / factor));
-    this.place(tick - ((tick - v.start) / (v.end - v.start)) * span, span);
+    if (this.layout) this.view = geo.zoom(this.view, this.layout.length, factor, tick);
   }
 
   /** Scrolls the view by `px` screen pixels. */
   pan(px: number): void {
-    const v = this.current();
-    if (!v || !this.view) return;
-    const span = v.end - v.start;
-    this.place(v.start + (px / this.layout!.rollW) * span, span);
+    const l = this.layout;
+    if (!l || !this.view) return;
+    this.view = geo.pan(this.view, l.length, (px / l.rollW) * (this.view.end - this.view.start));
   }
 
   /** Scrolls, if need be, so `start`–`end` is in view, keeping the zoom. */
   reveal(start: number, end: number): void {
-    const v = this.current();
-    if (!v || !this.view) return;
-    const span = v.end - v.start;
-    if (start >= v.start && end <= v.end) return;
-    this.place(end - start > span || start < v.start ? start : end - span, span);
+    if (this.layout) this.view = geo.reveal(this.view, this.layout.length, start, end);
   }
 
   /** While playing: turns the page when the playhead runs off the right edge, or jumps out of view. */
   follow(tick: number): void {
-    const v = this.current();
     const last = this.lastTick;
     this.lastTick = tick;
-    if (!v || !this.view) return;
-    const ranOff = last < v.end && tick >= v.end;
-    const jumped = tick < last && (tick < v.start || tick >= v.end);
-    if (ranOff || jumped) this.reveal(tick, tick + (v.end - v.start));
-  }
-
-  /**
-   * The note edge under a client point: the handle that moves where a note
-   * starts or ends. An edge inside its own note wins over a neighbour's edge
-   * just outside it, so where two notes touch, each keeps its own side.
-   */
-  edgeAt(song: Song, clientX: number, clientY: number): { event: NoteEvent; side: "start" | "end" } | null {
-    const p = this.pointAt(clientX, clientY);
-    if (!p) return null;
-    const px = this.width(1);
-    let outside: { event: NoteEvent; side: "start" | "end"; dist: number } | null = null;
-    for (const e of song.events) {
-      if (e.midi !== p.midi || (p.voice !== null && e.voice !== p.voice)) continue;
-      const end = e.start + e.duration;
-      const grip = Math.min(6, this.width(e.duration) / 3) / px;
-      const margin = 4 / px;
-      if (p.tick >= e.start && p.tick < e.start + grip && p.tick - e.start < end - p.tick) return { event: e, side: "start" };
-      if (p.tick <= end && p.tick > end - grip) return { event: e, side: "end" };
-      const before = e.start - p.tick;
-      const after = p.tick - end;
-      if (before > 0 && before <= margin && (!outside || before < outside.dist)) outside = { event: e, side: "start", dist: before };
-      if (after > 0 && after <= margin && (!outside || after < outside.dist)) outside = { event: e, side: "end", dist: after };
-    }
-    return outside && { event: outside.event, side: outside.side };
-  }
-
-  /**
-   * The slot a click at this point means: the note under it, else the slot
-   * at that time in the voice sounding nearest that pitch. Given a lane's
-   * voice, only that voice.
-   */
-  slotAt(song: Song, tick: number, midi: number, voice: string | null = null): number | null {
-    const hit = song.events.find(
-      (e) => e.midi === midi && (voice === null || e.voice === voice) && tick >= e.start && tick < e.start + e.duration,
-    );
-    if (hit) return hit.slot;
-
-    let best: { slot: number; dist: number } | null = null;
-    for (const v of voice === null ? song.voices : [voice]) {
-      let last: number | null = null;
-      for (let i = 0; i < song.slots.length; i++) {
-        const s = song.slots[i]!;
-        if (s.voice !== v) continue;
-        if (s.midi.length) last = s.midi[0]!;
-        if (tick < s.start || tick >= s.end) continue;
-        if (!s.editable) break;
-        const dist = last === null ? 24 : Math.abs(last - midi);
-        if (!best || dist < best.dist) best = { slot: i, dist };
-        break;
-      }
-    }
-    return best?.slot ?? null;
-  }
-
-  /** The lanes for `song` in a roll `height` tall: their pitch ranges and where they sit. */
-  private laneLayout(song: Song, height: number): { lanes: Lane[]; rowH: number } {
-    const range = (midis: number[], min: number) => {
-      let lo = (midis.length ? Math.min(...midis) : 60) - 2;
-      let hi = (midis.length ? Math.max(...midis) : 60) + 2;
-      while (hi - lo < min) (lo--, hi++);
-      return { lo, hi };
-    };
-    const bands =
-      this.lanes && song.voices.length > 1
-        ? song.voices.map((v) => ({ voice: v as string | null, ...range(song.events.filter((e) => e.voice === v).map((e) => e.midi), 12) }))
-        : [{ voice: null, ...range(song.events.map((e) => e.midi), 24) }];
-    // Every lane has the same row height, so a semitone looks the same size in each.
-    const rows = bands.reduce((n, b) => n + b.hi - b.lo + 1, 0);
-    const rowH = (height - STRIP_H - LANE_GAP * (bands.length - 1)) / rows;
-    let top = STRIP_H;
-    const lanes = bands.map((b) => {
-      const lane = { ...b, top, bottom: top + (b.hi - b.lo + 1) * rowH };
-      top = lane.bottom + LANE_GAP;
-      return lane;
-    });
-    return { lanes, rowH };
+    if (this.layout) this.view = geo.follow(this.view, this.layout.length, last, tick);
   }
 
   draw(song: Song | null, tick: number, stale: boolean, selected: number | null): void {
@@ -254,21 +111,12 @@ export class PianoRoll {
     this.layout = null;
     if (!song || song.length === 0) return;
 
-    const { lanes, rowH } = this.laneLayout(song, h);
-    const lo = Math.min(...lanes.map((ln) => ln.lo));
-    const hi = Math.max(...lanes.map((ln) => ln.hi));
-    const rollW = w - KEYBOARD_W;
-    const laneOf = (voice: string) => lanes.find((ln) => ln.voice === voice) ?? lanes[0]!;
-    // A view from before the song got shorter is pulled back inside it.
-    if (this.view && this.view.end > song.length) {
-      const span = this.view.end - this.view.start;
-      this.view = span >= song.length ? null : { start: song.length - span, end: song.length };
-    }
-    const start = this.view?.start ?? 0;
-    const end = this.view?.end ?? song.length;
-    this.layout = { lanes, lo, hi, rowH, rollW, length: song.length, start, end };
-    const x = (t: number) => KEYBOARD_W + ((t - start) / (end - start)) * rollW;
-    const y = (lane: Lane, midi: number) => lane.top + (lane.hi - midi) * rowH;
+    this.view = geo.clamp(this.view, song.length);
+    const l = (this.layout = geo.layout(song, w, h, this.lanes, this.view));
+    const { lanes, rowH, rollW, start, end } = l;
+    const laneOf = (voice: string) => geo.laneOf(l, voice);
+    const x = (t: number) => geo.xOf(l, t);
+    const y = (lane: geo.Lane, midi: number) => geo.yOf(l, lane, midi);
 
     this.drawStrip(song, tick, rollW);
 
@@ -318,7 +166,7 @@ export class PianoRoll {
 
     // Notes.
     /** Sounding keys, by lane, with the voice sounding each. */
-    const active = new Map<Lane, Map<number, number>>(lanes.map((ln) => [ln, new Map()]));
+    const active = new Map<geo.Lane, Map<number, number>>(lanes.map((ln) => [ln, new Map()]));
     for (const e of song.events) {
       const vi = song.voices.indexOf(e.voice);
       const lane = laneOf(e.voice);

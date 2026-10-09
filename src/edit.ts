@@ -16,7 +16,23 @@ export interface TokenEdit {
 
 export const slotPath = (s: SlotInfo): Path => ["blocks", s.block, s.voice, s.bar, ...s.path];
 
-const sounding = (s: SlotInfo) => s.kind === "note" || s.kind === "stack" || s.kind === "chord";
+/** Whether a slot starts a note, stack, or chord. */
+export const sounding = (s: SlotInfo) => s.kind === "note" || s.kind === "stack" || s.kind === "chord";
+
+/** The note, stack, or chord a slot sounds as part of: itself, or the one its holds continue. */
+export function onsetOf(song: Song, index: number): number | null {
+  const voice = song.slots[index]!.voice;
+  for (let i = index; i >= 0 && song.slots[i]!.voice === voice; i--) {
+    const s = song.slots[i]!;
+    if (sounding(s)) return i;
+    if (s.kind !== "hold") return null;
+  }
+  return null;
+}
+
+/** The slot sounding from `start` in `voice`, or -1: for finding a note after an edit that may have rewritten its path. */
+export const onsetAt = (song: Song, voice: string, start: number) =>
+  song.slots.findIndex((s) => s.voice === voice && Math.abs(s.start - start) <= 1 && sounding(s));
 const marksText = (n: number) => (n > 0 ? "'".repeat(n) : ",".repeat(-n));
 
 const countMarks = (s: string) => [...s].reduce((n, c) => n + (c === "'" ? 1 : -1), 0);
