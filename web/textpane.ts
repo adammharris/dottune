@@ -10,7 +10,11 @@ export interface TextPane {
   renderHighlight(reveal?: boolean): void;
   /** Puts the first error, and how many more there are, in the status bar. */
   describeErrors(): void;
+  /** Shows or folds away the text, leaving the roll the whole width. */
+  setOpen(open: boolean): void;
 }
+
+const OPEN_KEY = "tune:text";
 
 export function setupTextPane(app: App): TextPane {
   const { source } = app;
@@ -77,10 +81,30 @@ export function setupTextPane(app: App): TextPane {
     highlight.scrollLeft = source.scrollLeft;
   }
 
-  /** Clicking an error in the status bar puts the caret on it. */
+  const main = document.querySelector("main")!;
+  const toggle = $<HTMLInputElement>("text-pane");
+
+  function setOpen(open: boolean): void {
+    main.classList.toggle("folded", !open);
+    toggle.checked = open;
+    localStorage.setItem(OPEN_KEY, open ? "1" : "0");
+    if (!open && document.activeElement === source) app.canvas.focus();
+  }
+  toggle.addEventListener("change", () => setOpen(toggle.checked));
+  // ⌘\ (Ctrl+\) folds the text away or brings it back, from anywhere.
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+      e.preventDefault();
+      setOpen(main.classList.contains("folded"));
+    }
+  });
+  setOpen(localStorage.getItem(OPEN_KEY) !== "0");
+
+  /** Clicking an error in the status bar puts the caret on it, bringing the text back if it is folded. */
   status.addEventListener("click", () => {
     const span = app.errors[0]?.span;
     if (!span || app.errorSource !== source.value) return;
+    setOpen(true);
     source.focus();
     source.setSelectionRange(span[0], span[1]);
     renderHighlight(true);
@@ -125,5 +149,10 @@ export function setupTextPane(app: App): TextPane {
     }
   });
 
-  return { renderGutter, renderHighlight, describeErrors };
+  return {
+    setOpen,
+    renderGutter,
+    renderHighlight,
+    describeErrors,
+  };
 }

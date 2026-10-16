@@ -150,6 +150,15 @@ main {
   min-height: 0;
 }
 
+/* With the text folded away, the roll takes the whole width. */
+main.folded {
+  grid-template-columns: 1fr;
+}
+
+main.folded #editor {
+  display: none;
+}
+
 #editor {
   display: flex;
   min-height: 0;
