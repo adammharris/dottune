@@ -25,9 +25,9 @@
       </div>
       <div class="group">
         <span id="scope" title="Select a note to edit the settings for its block"></span>
-        <label>Key <select id="tonic"></select><select id="mode"></select></label>
-        <label>Tempo <input id="tempo" type="number" min="20" max="320" step="1" /></label>
-        <label>Time <select id="time"></select></label>
+        <label>Key <select id="tonic"></select><select id="mode"></select><button class="clear" data-directive="key" hidden>×</button></label>
+        <label>Tempo <input id="tempo" type="number" min="4" max="1000" step="any" /><button class="clear" data-directive="tempo" hidden>×</button></label>
+        <label>Time <select id="time"></select><button class="clear" data-directive="time" hidden>×</button></label>
         <span id="octaves" title="Octave each part's first note starts in"></span>
       </div>
     </header>
@@ -40,6 +40,35 @@
         </div>
       </section>
       <section id="stage">
+        <div id="structure">
+          <div class="group">
+            <span id="bar-label" class="label">Bar</span>
+            <button data-act="bar-before" title="Insert a bar of rests before this one (⌥⇧B)">+◂</button>
+            <button data-act="bar-after" title="Insert a bar of rests after this one (⌥B)">▸+</button>
+            <button data-act="bar-dup" title="Duplicate this bar, in every voice (⌥D)">⧉</button>
+            <button data-act="bar-left" title="Move this bar earlier (⌥←)">◂</button>
+            <button data-act="bar-right" title="Move this bar later (⌥→)">▸</button>
+            <button data-act="bar-del" title="Delete this bar, in every voice (⌥⌫)">✕</button>
+          </div>
+          <div class="group">
+            <span id="block-label" class="label">Block</span>
+            <button data-act="block-new" title="New block after this one (⌥N)">+</button>
+            <button data-act="block-dup" title="Duplicate this block, change and all (⌥⇧D)">⧉</button>
+            <button data-act="block-up" title="Move this block earlier (⌥↑)">▴</button>
+            <button data-act="block-down" title="Move this block later (⌥↓)">▾</button>
+            <button data-act="block-split" title="Split the block before this bar (⌥X)">✂</button>
+            <button data-act="block-join" title="Join the next block onto this one (⌥J)">⊕</button>
+            <button data-act="block-del" title="Delete this block (⌥⇧⌫)">✕</button>
+          </div>
+          <div class="group">
+            <span id="voice-label" class="label">Voice</span>
+            <button id="voice-add" title="Add a voice to this block">+</button>
+            <button id="voice-rename" title="Rename this voice everywhere">Aa</button>
+            <button data-act="voice-up" title="Move this voice up (⌥⇧↑)">▴</button>
+            <button data-act="voice-down" title="Move this voice down (⌥⇧↓)">▾</button>
+            <button data-act="voice-del" title="Delete this voice from this block">✕</button>
+          </div>
+        </div>
         <canvas id="roll" tabindex="0"></canvas>
         <p id="hint">
           Click a note to select it and play from there · <kbd>↑</kbd><kbd>↓</kbd> step · <kbd>⇧↑</kbd><kbd>⇧↓</kbd> octave · <kbd>1</kbd>–<kbd>7</kbd> degree ·

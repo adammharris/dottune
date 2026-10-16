@@ -32,7 +32,8 @@ export interface RollInput {
   preview(): { song: Song; selected: number } | null;
 }
 
-export function setupRollInput(app: App, togglePlay: () => void): RollInput {
+/** `structureKey` runs the structure bar's edit for a key, if it has one. */
+export function setupRollInput(app: App, togglePlay: () => void, structureKey: (e: KeyboardEvent) => boolean): RollInput {
   const { canvas, roll, player } = app;
   const lanesBox = $<HTMLInputElement>("lanes");
 
@@ -345,7 +346,7 @@ export function setupRollInput(app: App, togglePlay: () => void): RollInput {
   }
 
   canvas.addEventListener("keydown", (e) => {
-    if (viewKey(e) || editKey(e)) e.preventDefault();
+    if (structureKey(e) || viewKey(e) || editKey(e)) e.preventDefault();
   });
 
   return {
