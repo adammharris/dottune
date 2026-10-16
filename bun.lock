@@ -5,7 +5,7 @@
     "": {
       "name": "music",
       "dependencies": {
-        "@diaryx/fig": "5.0.0",
+        "@diaryx/fig": "7.0.0",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -14,7 +14,7 @@
     },
   },
   "packages": {
-    "@diaryx/fig": ["@diaryx/fig@5.0.0", "", {}, "sha512-cJ6QxTGF+EuHvuLo9DfZB5vVePsDu6r1wUnb1wiOX7hCDLzdzKJ53sMjqYW/Rs/umv97dG+alFskgnGEI3KT+A=="],
+    "@diaryx/fig": ["@diaryx/fig@7.0.0", "", {}, "sha512-IjFvAqVWOdmfGN9yj73Dk1B08l7siBM/1ptQV6nA+jWhl+qMhR07a7SBb/VAz7faT5ZqOaZTbe8OXB2MxPU70Q=="],
 
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
