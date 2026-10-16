@@ -50,6 +50,9 @@ function modeScale(rotation: number): number[] {
 
 export const mod = (a: number, m: number) => ((a % m) + m) % m;
 
+/** The pitch class of a key's tonic: `"Eb major"` → 3. */
+export const tonicOf = (key: string) => mod(LETTERS[key[0]!]! + accidental(key[1]), 12);
+
 export function pitchName(midi: number): string {
   return `${NAMES[mod(midi, 12)]}${Math.floor(midi / 12) - 1}`;
 }
