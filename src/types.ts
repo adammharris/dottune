@@ -65,8 +65,15 @@ export interface BlockInfo {
   time: [number, number];
   /** Explicit `octave` settings in force. */
   octaves: Record<string, number>;
-  /** Directives the change before this block set (empty for the first block, whose settings are the header's). */
+  /**
+   * Directives written for this block: the header's for the first block, the
+   * change's before any other. Each is its directive word, or `octave <voice>`.
+   */
   directives: string[];
+  /** Voices with a line in this block, in the order written. */
+  voices: string[];
+  /** Bars each voice line holds; the block is as long as the longest. */
+  bars: Record<string, number>;
 }
 
 export interface Change {

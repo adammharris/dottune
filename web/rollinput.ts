@@ -3,7 +3,15 @@
 
 import { compile } from "../src/compile";
 import {
+  addThird,
   cutTick,
+  cycleChord,
+  cycleInversion,
+  cycleQuality,
+  deleteSlot,
+  divideBar,
+  insertSlot,
+  joinGroup,
   lengthen,
   moveBy,
   onsetAt,
@@ -11,6 +19,7 @@ import {
   resize,
   restart,
   setDegree,
+  setPitch,
   snapCut,
   snapStart,
   split,
@@ -32,7 +41,8 @@ export interface RollInput {
   preview(): { song: Song; selected: number } | null;
 }
 
-export function setupRollInput(app: App, togglePlay: () => void): RollInput {
+/** `structureKey` runs the structure bar's edit for a key, if it has one. */
+export function setupRollInput(app: App, togglePlay: () => void, structureKey: (e: KeyboardEvent) => boolean): RollInput {
   const { canvas, roll, player } = app;
   const lanesBox = $<HTMLInputElement>("lanes");
 
@@ -206,13 +216,25 @@ export function setupRollInput(app: App, togglePlay: () => void): RollInput {
 
   canvas.addEventListener("dblclick", (e) => {
     const { song } = app;
-    const tick = song && roll.stripAt(e.clientX, e.clientY);
-    if (!song || tick === null) return;
+    if (!song) return;
+    const tick = roll.stripAt(e.clientX, e.clientY);
+    if (tick === null) return placeNote(e);
     const b = song.blocks.find((b) => tick >= b.start && tick < b.end);
     // Double-clicking the block already fitted goes back to the whole song.
     if (!b || fitted(b)) roll.showAll();
     else roll.show(b.start, b.end);
   });
+
+  /** Double-click on the roll: a note of that pitch in the slot there (in a rest, a hold, or over a note). */
+  function placeNote(e: MouseEvent): void {
+    const { song } = app;
+    const p = roll.pointAt(e.clientX, e.clientY);
+    if (!song || !p || app.compiled !== app.source.value) return;
+    const index = slotAt(song, p.tick, p.midi, p.voice);
+    if (index === null) return;
+    app.select(index);
+    editSelected((s, i) => setPitch(s, i, p.midi));
+  }
 
   /** Gives each voice its own lane, or puts them all in one. */
   function setLanes(on: boolean): void {
@@ -305,6 +327,12 @@ export function setupRollInput(app: App, togglePlay: () => void): RollInput {
     if (e.metaKey || e.ctrlKey) return false;
     if (e.key === " ") return togglePlay(), true;
     if (app.selected === null) return false;
+    // ⌥1–9: the selected note's bar, re-divided into that many slots.
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (e.altKey && digit) {
+      const n = Number(digit[1]);
+      return editSelected((s, i) => divideBar(s, i, n), (s) => keyOf({ ...s, path: [0] })), true;
+    }
     const steps = e.shiftKey ? 7 : 1;
     switch (e.key) {
       case "ArrowUp":
@@ -332,7 +360,24 @@ export function setupRollInput(app: App, togglePlay: () => void): RollInput {
         return editSelected(toHold), true;
       case "s":
       case "/":
-        return editSelected(split, (s) => keyOf({ ...s, path: [...s.path, 0] })), true;
+        return editSelected((s, i) => split(s, i), (s) => keyOf({ ...s, path: [...s.path, 0] })), true;
+      case "t":
+        return editSelected((s, i) => split(s, i, 3), (s) => keyOf({ ...s, path: [...s.path, 0] })), true;
+      case "j":
+        return editSelected(joinGroup, (s) => keyOf({ ...s, path: s.path.slice(0, -1) })), true;
+      case "i":
+        return editSelected(insertSlot, (s) => keyOf({ ...s, path: [...s.path.slice(0, -1), s.path.at(-1)! + 1] })), true;
+      case "x":
+        return editSelected(deleteSlot), true;
+      case "c":
+        return editSelected(cycleChord), true;
+      case "q":
+        return editSelected(cycleQuality), true;
+      case "v":
+        return editSelected(cycleInversion), true;
+      case "+":
+      case "=":
+        return editSelected(addThird), true;
       case "#":
         return editSelected((s, i) => toggleAccidental(s, i, "#")), true;
       case "b":
@@ -345,7 +390,7 @@ export function setupRollInput(app: App, togglePlay: () => void): RollInput {
   }
 
   canvas.addEventListener("keydown", (e) => {
-    if (viewKey(e) || editKey(e)) e.preventDefault();
+    if (structureKey(e) || viewKey(e) || editKey(e)) e.preventDefault();
   });
 
   return {

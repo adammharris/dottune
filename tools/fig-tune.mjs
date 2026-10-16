@@ -18,10 +18,13 @@
 // `blocks goes first` below for why.
 //
 // Editing is the generic splice engine plus one renderer, `entry`, which
-// spells a new setting, octave, or voice line. Bars are not edited item by
-// item (a bar has no delimiters for the engine to splice between); replace a
-// whole bar or token raw instead — `replaceValueRaw(["blocks", 0, "RH", 1],
-// "1 [2 3] 4 5")` — and fig reparses, rolling back anything that fails.
+// spells a new setting or octave. The sequences say how their items are
+// joined, so each takes item edits — insert, append, delete, move: a voice's
+// bars (` | `, with no delimiters of their own), a bar's tokens and a group's
+// (` `), and the blocks (a blank line apart). `insertItemRaw(["blocks", 0,
+// "RH"], 1, "1 [2 3] 4 5")` writes a new second bar; fig reparses, rolling
+// back anything that fails. fig refuses a block edit that would move a
+// change's directives into the header, and a new voice line.
 // `set` does not create the `octave` mapping when the file has none.
 
 import { LanguageError, serve } from "@diaryx/fig/helper";
@@ -59,12 +62,15 @@ function parseBar(text, base) {
   const start = base + (text.length - text.trimStart().length);
   const end = base + text.trimEnd().length;
   const bar = container("sequence", start, end);
+  bar.item_sep = " ";
+  bar.open = true;
   const stack = [bar];
   const re = /\[|\]|[^\s\[\]]+/g;
   for (let m; (m = re.exec(text)); ) {
     const at = base + m.index;
     if (m[0] === "[") {
       const group = container("sequence", at, at + 1);
+      group.item_sep = " ";
       stack.at(-1).children.push(group);
       stack.push(group);
     } else if (m[0] === "]") {
@@ -126,7 +132,10 @@ function parseTree(input) {
       if (voice) {
         if (!blocks) {
           const key = scalar("string", bodyStart, bodyStart, "blocks");
-          blocks = entry(key, container("sequence", bodyStart, bodyEnd), bodyStart, bodyEnd);
+          const seq = container("sequence", bodyStart, bodyEnd);
+          seq.item_sep = "\n\n";
+          seq.open = true;
+          blocks = entry(key, seq, bodyStart, bodyEnd);
           root.children.push(blocks);
         }
         if (!block) {
@@ -137,6 +146,8 @@ function parseTree(input) {
         const nameEnd = bodyStart + voice[1].length;
         const colon = nameEnd + voice[2].length;
         const bars = container("sequence", bodyEnd, bodyEnd);
+        bars.item_sep = " | ";
+        bars.open = true;
         let segStart = colon + 1;
         const segments = body.slice(voice[0].length).split("|");
         if (segments.length > 1 && segments.at(-1).trim() === "") segments.pop();
@@ -248,6 +259,8 @@ function flatten(root, input) {
     const row = { kind: node.kind, parent, span: span(node.span) };
     if (node.text !== undefined) row.text = node.text;
     if (node.sep) row.sep = span(node.sep);
+    if (node.item_sep) row.item_sep = node.item_sep;
+    if (node.open) row.open = true;
     rows.push(row);
     for (const text of node.leading) comments.push({ node: id, slot: "leading", style: "line", text });
     if (node.trailing !== null) comments.push({ node: id, slot: "trailing", style: "line", text: node.trailing });

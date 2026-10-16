@@ -13,6 +13,7 @@ import { PianoRoll, voiceColor } from "./roll";
 import { setupRollInput } from "./rollinput";
 import { setupSettings } from "./settings";
 import { readShareHash } from "./share";
+import { setupStructureBar } from "./structurebar";
 import { setupTextPane } from "./textpane";
 
 const STORAGE_KEY = "tune:source";
@@ -49,11 +50,13 @@ const app: App = {
       app.setStatus(`${song.events.length} notes · ${song.voices.map((v, i) => `<span style="color:${voiceColor(i)}">${v}</span>`).join(" ")}`, "html");
       settings.sync(song);
       reselect();
+      structure.sync();
     } catch (e) {
       if (!(e instanceof TuneError)) throw e;
       app.errors = e.errors;
       app.errorSource = source.value;
       text.describeErrors();
+      structure.sync();
     }
     text.renderGutter();
     text.renderHighlight();
@@ -66,6 +69,7 @@ const app: App = {
     if (index !== null && song) app.roll.reveal(song.slots[index]!.start, song.slots[index]!.end);
     app.describeSelection();
     if (song) settings.sync(song);
+    structure.sync();
     text.renderHighlight(document.activeElement !== source);
   },
 
@@ -113,7 +117,8 @@ function reselect(): void {
 const text = setupTextPane(app);
 const settings = setupSettings(app);
 const files = setupFiles(app);
-const rollInput = setupRollInput(app, togglePlay);
+const structure = setupStructureBar(app);
+const rollInput = setupRollInput(app, togglePlay, structure.key);
 
 // ── undo ────────────────────────────────────────────────────────────────────
 
@@ -196,6 +201,9 @@ async function start(): Promise<void> {
 void start();
 
 loadFig().then(
-  () => (app.figReady = true),
+  () => {
+    app.figReady = true;
+    structure.sync();
+  },
   (e) => app.setStatus(`fig failed to load, so the GUI cannot edit: ${(e as Error).message}`, "error"),
 );

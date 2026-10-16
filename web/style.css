@@ -119,6 +119,21 @@ header input[type="number"] {
   gap: 10px;
 }
 
+header button.clear {
+  padding: 0 5px;
+  margin-left: -2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--dim);
+  background: transparent;
+  border-color: transparent;
+}
+
+header button.clear:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
 #octaves input {
   width: 3.4em;
 }
@@ -133,6 +148,15 @@ main {
   display: grid;
   grid-template-columns: minmax(320px, 2fr) 3fr;
   min-height: 0;
+}
+
+/* With the text folded away, the roll takes the whole width. */
+main.folded {
+  grid-template-columns: 1fr;
+}
+
+main.folded #editor {
+  display: none;
 }
 
 #editor {
@@ -216,8 +240,40 @@ main {
 
 #stage {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   min-height: 0;
+}
+
+#structure {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #292e42;
+}
+
+#structure .group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+#structure .label {
+  min-width: 4.5em;
+  font: 12px var(--mono);
+  color: var(--dim);
+}
+
+#structure button {
+  min-width: 2.2em;
+  padding: 2px 6px;
+  font-size: 13px;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+  border-color: #3b4261;
 }
 
 #roll {

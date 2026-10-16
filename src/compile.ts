@@ -50,6 +50,9 @@ function modeScale(rotation: number): number[] {
 
 export const mod = (a: number, m: number) => ((a % m) + m) % m;
 
+/** The pitch class of a key's tonic: `"Eb major"` → 3. */
+export const tonicOf = (key: string) => mod(LETTERS[key[0]!]! + accidental(key[1]), 12);
+
 export function pitchName(midi: number): string {
   return `${NAMES[mod(midi, 12)]}${Math.floor(midi / 12) - 1}`;
 }
@@ -284,7 +287,7 @@ interface Block {
   voices: VoiceLine[];
   /** The settings in force for this block. */
   settings: Header;
-  /** Which directives the change before this block set (SPEC §2.1). */
+  /** Which directives the header (for the first block) or the change before this block set (SPEC §2.1). */
   directives: Set<string>;
   /** First voice line. */
   line: number;
@@ -362,7 +365,7 @@ export function compile(source: string): Song {
       }
       if (!pending.firstLine) pending = { ...pending, firstLine: lineNo, span: textSpan };
       parseDirective(text, lineNo, cur, textSpan);
-      pending.directives.add(word);
+      pending.directives.add(word === "octave" ? `octave ${text.split(/\s+/)[1]}` : word);
     });
   }
   if (blocks.length > 0 && pending.firstLine)
@@ -424,7 +427,9 @@ export function compile(source: string): Song {
       tempo: h.tempo,
       time: h.time,
       octaves: Object.fromEntries(h.octaves),
-      directives: blockIndex === 0 ? [] : [...b.directives],
+      directives: [...b.directives],
+      voices: b.voices.map((v) => v.name),
+      bars: Object.fromEntries(b.voices.map((v) => [v.name, v.bars.length])),
     });
     blockStart = blockEnd;
   }

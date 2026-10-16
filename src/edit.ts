@@ -4,7 +4,7 @@
 // A token's pitch depends only on itself, the key, and its voice's octave
 // (SPEC §4.2), so an edit rewrites one token and never moves another.
 
-import { CHORD, NOTE, NUMERALS, mod } from "./compile";
+import { CHORD, NOTE, NUMERALS, defaultOctave, mod, tonicOf } from "./compile";
 import type { SlotInfo, Song } from "./types";
 
 export type Path = (string | number)[];
@@ -128,19 +128,242 @@ export function toHold(song: Song, index: number): TokenEdit[] {
   return s.editable ? rewrite(song, index, "-") : [];
 }
 
-/** Splits a slot into two equal halves, both sounding what it sounded. */
-export function split(song: Song, index: number): TokenEdit[] {
+/** Splits a slot into `parts` equal parts, each sounding what it sounded. */
+export function split(song: Song, index: number, parts = 2): TokenEdit[] {
   const s = song.slots[index]!;
   if (!s.editable) return [];
-  return [{ path: slotPath(s), text: `[${s.text} ${s.text}]` }];
+  return [{ path: slotPath(s), text: `[${Array<string>(parts).fill(s.text).join(" ")}]` }];
 }
 
-/** Toggles a sharp or flat on a single note. */
+/** Toggles a sharp or flat on a single note, or on a chord's root. */
 export function toggleAccidental(song: Song, index: number, acc: "#" | "b"): TokenEdit[] {
   const s = song.slots[index]!;
-  const m = s.kind === "note" && s.editable ? NOTE.exec(s.text) : null;
-  if (!m) return [];
-  return [{ path: slotPath(s), text: (m[1] === acc ? "" : acc) + m[2] + m[3] }];
+  if (!s.editable) return [];
+  const m = s.kind === "note" ? NOTE.exec(s.text) : null;
+  if (m) return [{ path: slotPath(s), text: (m[1] === acc ? "" : acc) + m[2] + m[3] }];
+  const c = s.kind === "chord" ? readChord(s.text) : null;
+  if (c) return [{ path: slotPath(s), text: writeChord({ ...c, acc: c.acc === acc ? "" : acc }) }];
+  return [];
+}
+
+/**
+ * Writes a note of pitch `midi` in the slot: the scale degree that sounds it,
+ * else the one a semitone below, sharpened. For a note, rest, or hold.
+ */
+export function setPitch(song: Song, index: number, midi: number): TokenEdit[] {
+  const s = song.slots[index]!;
+  if (!s.editable || s.kind === "chord" || s.kind === "stack") return [];
+  const block = song.blocks[s.block];
+  const scale = block?.scale ?? song.scale;
+  const octave = block?.octaves[s.voice] ?? song.octaves[s.voice] ?? defaultOctave(s.voice);
+  const rel = midi - (12 * (octave + 1) + tonicOf(block?.key ?? song.key));
+  const pc = mod(rel, 12);
+  const natural = scale.indexOf(pc);
+  const degree = natural !== -1 ? natural : scale.indexOf(mod(pc - 1, 12));
+  if (degree === -1) return [];
+  return rewrite(song, index, (natural !== -1 ? "" : "#") + degreeAt(degree + 7 * Math.floor(rel / 12)));
+}
+
+// ── harmony ─────────────────────────────────────────────────────────────────
+
+/** A chord token taken apart (SPEC §5.2). */
+interface Chord {
+  acc: string;
+  numeral: string;
+  quality: string;
+  seventh: string;
+  marks: string;
+  bassAcc: string;
+  bassDeg: string;
+}
+
+function readChord(text: string): Chord | null {
+  const m = CHORD.exec(text);
+  if (!m) return null;
+  return { acc: m[1]!, numeral: m[2]!, quality: m[3]!, seventh: m[4] ?? "", marks: m[5]!, bassAcc: m[6] ?? "", bassDeg: m[7] ?? "" };
+}
+
+const writeChord = (c: Chord) => c.acc + c.numeral + c.quality + c.seventh + c.marks + (c.bassDeg ? `/${c.bassAcc}${c.bassDeg}` : "");
+
+/** The scale degree (0-based) a chord is built on. */
+const rootOf = (c: Chord) => NUMERALS.indexOf(c.numeral.toLowerCase());
+
+/** Semitones above the root of each chord tone, as the compiler builds them. */
+function chordTones(c: Chord): number[] {
+  const upper = c.numeral === c.numeral.toUpperCase();
+  const tones = c.quality === "o" || c.quality === "h" ? [0, 3, 6] : c.quality === "+" ? [0, 4, 8] : upper ? [0, 4, 7] : [0, 3, 7];
+  if (c.seventh === "maj7") tones.push(11);
+  else if (c.seventh === "7") tones.push(c.quality === "o" ? 9 : 10);
+  return tones;
+}
+
+const scaleOf = (song: Song, index: number) => song.blocks[song.slots[index]!.block]?.scale ?? song.scale;
+
+/**
+ * Turns a note (or a stack, by its first member) into the diatonic triad on its
+ * degree, a triad into its diatonic seventh chord, and a seventh chord back
+ * into a note on its root. The octave marks stay.
+ */
+export function cycleChord(song: Song, index: number): TokenEdit[] {
+  const s = song.slots[index]!;
+  if (!sounding(s) || !s.editable) return [];
+  const scale = scaleOf(song, index);
+  const c = s.kind === "chord" ? readChord(s.text)! : null;
+  if (c && !c.seventh) {
+    const full = readChord(diatonicChord(scale, rootOf(c), true))!;
+    return rewrite(song, index, writeChord({ ...c, numeral: full.numeral, quality: full.quality, seventh: full.seventh }));
+  }
+  if (c) return rewrite(song, index, c.acc + (rootOf(c) + 1) + c.marks);
+  const first = s.text.split("+")[0]!;
+  const idx = indexOf(first);
+  return rewrite(song, index, NOTE.exec(first)![1]! + diatonicChord(scale, mod(idx, 7), false) + marksText(Math.floor(idx / 7)));
+}
+
+/** Chord qualities in the order `cycleQuality` steps through them: [numeral case, quality, seventh]. */
+const TRIADS: [boolean, string, string][] = [
+  [true, "", ""],
+  [false, "", ""],
+  [false, "o", ""],
+  [true, "+", ""],
+];
+const SEVENTHS: [boolean, string, string][] = [
+  [true, "", "7"],
+  [true, "", "maj7"],
+  [false, "", "7"],
+  [false, "h", "7"],
+  [false, "o", "7"],
+];
+
+/** Steps a chord to its next quality: major, minor, diminished, augmented (with a seventh: 7, maj7, m7, ø7, o7). */
+export function cycleQuality(song: Song, index: number): TokenEdit[] {
+  const s = song.slots[index]!;
+  const c = s.kind === "chord" && s.editable ? readChord(s.text) : null;
+  if (!c) return [];
+  const list = c.seventh ? SEVENTHS : TRIADS;
+  const upper = c.numeral === c.numeral.toUpperCase();
+  const at = list.findIndex(([u, q, sev]) => u === upper && q === c.quality && sev === c.seventh);
+  const [u, quality, seventh] = list[(at + 1) % list.length]!;
+  const numeral = u ? c.numeral.toUpperCase() : c.numeral.toLowerCase();
+  return rewrite(song, index, writeChord({ ...c, numeral, quality, seventh }));
+}
+
+/**
+ * Steps a chord's bass through its inversions: root position, then its third,
+ * fifth, and seventh in the bass, spelled with whatever accidental the chord
+ * tone needs in this scale.
+ */
+export function cycleInversion(song: Song, index: number): TokenEdit[] {
+  const s = song.slots[index]!;
+  const c = s.kind === "chord" && s.editable ? readChord(s.text) : null;
+  if (!c) return [];
+  const scale = scaleOf(song, index);
+  const root = rootOf(c);
+  const rootPc = scale[root]! + (c.acc === "#" ? 1 : c.acc === "b" ? -1 : 0);
+  const basses = [
+    "",
+    ...chordTones(c)
+      .slice(1)
+      .map((semis, i) => {
+        const degree = mod(root + 2 * (i + 1), 7);
+        const off = mod(rootPc + semis - scale[degree]! + 6, 12) - 6;
+        return (off === 1 ? "#" : off === -1 ? "b" : "") + (degree + 1);
+      }),
+  ];
+  const next = basses[(basses.indexOf(c.bassAcc + c.bassDeg) + 1) % basses.length]!;
+  const m = /^([#b]?)(\d)?$/.exec(next)!;
+  return rewrite(song, index, writeChord({ ...c, bassAcc: m[1]!, bassDeg: m[2] ?? "" }));
+}
+
+/** Adds the scale degree a third above the top of a note or stack, making (or growing) a stack. */
+export function addThird(song: Song, index: number): TokenEdit[] {
+  const s = song.slots[index]!;
+  if ((s.kind !== "note" && s.kind !== "stack") || !s.editable) return [];
+  const members = s.text.split("+");
+  const top = Math.max(...members.map(indexOf));
+  return rewrite(song, index, [...members, degreeAt(top + 2)].join("+"));
+}
+
+// ── rhythm ──────────────────────────────────────────────────────────────────
+
+/**
+ * Rewrites the bar a slot is in through `fn`, which gets the bar as written
+ * and the slot's path in it. A group left holding one item becomes that item.
+ */
+function rewriteBar(song: Song, index: number, fn: (bar: Node[], path: number[]) => void): TokenEdit[] {
+  const s = song.slots[index]!;
+  if (!s.editable) return [];
+  const old: Node[] = [];
+  for (const t of song.slots) if (t.voice === s.voice && t.block === s.block && t.bar === s.bar) place(old, t.path, t.text);
+  const next = structuredClone(old);
+  fn(next, s.path);
+  const edits: TokenEdit[] = [];
+  const path = ["blocks", s.block, s.voice, s.bar];
+  // A bar is not a group: one that changes length is written without brackets.
+  if (old.length === next.length) old.forEach((child, i) => diff(child, next[i]!, [...path, i], edits));
+  else edits.push({ path, text: next.map(serialize).join(" ") });
+  return edits;
+}
+
+/** The group (or bar) holding the item at `path`. */
+function holder(bar: Node[], path: number[]): Node[] {
+  let at = bar;
+  for (const i of path.slice(0, -1)) at = at[i] as Node[];
+  return at;
+}
+
+/** Puts a rest after the slot, in its group or bar, which re-divides to make room. */
+export function insertSlot(song: Song, index: number): TokenEdit[] {
+  return rewriteBar(song, index, (bar, path) => holder(bar, path).splice(path.at(-1)! + 1, 0, "."));
+}
+
+/** Takes the slot out of its group or bar, which re-divides among the rest. */
+export function deleteSlot(song: Song, index: number): TokenEdit[] {
+  return rewriteBar(song, index, (bar, path) => {
+    const group = holder(bar, path);
+    group.splice(path.at(-1)!, 1);
+    if (path.length === 1) {
+      if (group.length === 0) group.push(".");
+      return;
+    }
+    const parent = holder(bar, path.slice(0, -1));
+    parent[path.at(-2)!] = group.length === 0 ? "." : group.length === 1 ? group[0]! : group;
+  });
+}
+
+/** The first token written in a node. */
+const firstToken = (n: Node): string => (typeof n === "string" ? n : firstToken(n[0]!));
+
+/** Undoes a split: the group the slot is in becomes one slot, sounding what the group started with. */
+export function joinGroup(song: Song, index: number): TokenEdit[] {
+  if (song.slots[index]!.path.length < 2) return [];
+  return rewriteBar(song, index, (bar, path) => {
+    const at = path.slice(0, -1);
+    holder(bar, at)[at.at(-1)!] = firstToken(holder(bar, path));
+  });
+}
+
+/**
+ * Re-divides the slot's whole bar into `n` equal slots. Each takes the first
+ * note that starts within it, else holds what sounds at its start, else rests:
+ * what fits the new grid sounds as before.
+ */
+export function divideBar(song: Song, index: number, n: number): TokenEdit[] {
+  const s = song.slots[index]!;
+  const slots = song.slots.filter((t) => t.voice === s.voice && t.block === s.block && t.bar === s.bar);
+  if (n < 1 || slots.some((t) => !t.editable)) return [];
+  const start = slots[0]!.start;
+  const len = slots.at(-1)!.end - start;
+  const events = song.events.filter((e) => e.voice === s.voice);
+  const tokens = Array.from({ length: n }, (_, i) => {
+    const [from, to] = [start + (len * i) / n, start + (len * (i + 1)) / n];
+    const onset = slots.find((t) => sounding(t) && t.start >= from - 0.5 && t.start < to - 0.5);
+    if (onset) return onset.text;
+    return events.some((e) => e.start <= from + 0.5 && from + 0.5 < e.start + e.duration) ? "-" : ".";
+  });
+  const text = tokens.join(" ");
+  const current = slots.map((t) => t.text).join(" ");
+  if (text === current && slots.every((t) => t.path.length === 1)) return [];
+  return [{ path: ["blocks", s.block, s.voice, s.bar], text }];
 }
 
 // ── resizing ────────────────────────────────────────────────────────────────

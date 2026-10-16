@@ -1,9 +1,11 @@
 // The settings bar: key, tempo, time, and each voice's octave, for the block
-// the selected note is in (else the first). Changing one writes its directive.
+// the selected note is in (else the first). Changing one writes its directive;
+// × beside one the block writes itself removes it, so the block takes the
+// setting before it (or the default).
 
 import { defaultOctave } from "../src/compile";
 import type { Path } from "../src/edit";
-import { applyEdits } from "../src/fig";
+import { clearDirective, setDirective } from "../src/structure";
 import type { Song } from "../src/types";
 import { $, type App } from "./app";
 import { voiceColor } from "./roll";
@@ -32,11 +34,31 @@ export function setupSettings(app: App): Settings {
   /** The block the settings bar edits: the selected note's, else the first. */
   const settingsBlock = () => (app.song && app.selected !== null ? app.song.slots[app.selected]!.block : 0);
 
+  /** A × that removes `directive` from the settings block. */
+  function clearButton(directive: string): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.className = "clear";
+    b.dataset.directive = directive;
+    b.textContent = "×";
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      clear(directive);
+    });
+    return b;
+  }
+  for (const b of document.querySelectorAll<HTMLButtonElement>("header button.clear[data-directive]")) {
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      clear(b.dataset.directive!);
+    });
+  }
+
   function sync(song: Song): void {
     const block = settingsBlock();
-    const s = song.blocks[block] ?? { ...song, directives: [] };
+    const s = song.blocks[block];
+    const settings = s ?? { key: song.key, tempo: song.tempo, time: song.time, octaves: song.octaves };
     scopeEl.textContent = song.blocks.length > 1 ? (block === 0 ? "from the start:" : `from block ${block + 1}:`) : "";
-    const [tonic, mode] = s.key.split(" ");
+    const [tonic, mode] = settings.key.split(" ");
     const set = (el: HTMLSelectElement | HTMLInputElement, value: string) => {
       if (document.activeElement === el) return;
       if (el instanceof HTMLSelectElement && ![...el.options].some((o) => o.value === value)) el.add(new Option(value, value));
@@ -44,8 +66,8 @@ export function setupSettings(app: App): Settings {
     };
     set(tonicSel, tonic!);
     set(modeSel, mode!);
-    set(tempoIn, String(s.tempo));
-    set(timeSel, s.time.join("/"));
+    set(tempoIn, String(settings.tempo));
+    set(timeSel, settings.time.join("/"));
 
     const current = [...octavesEl.querySelectorAll("input")].map((i) => i.dataset.voice).join(",");
     if (current !== song.voices.join(",")) {
@@ -55,19 +77,24 @@ export function setupSettings(app: App): Settings {
           label.style.color = voiceColor(i);
           const input = document.createElement("input");
           input.type = "number";
-          input.min = "0";
-          input.max = "8";
+          input.min = "-1";
+          input.max = "9";
           input.dataset.voice = v;
           input.title = `Octave ${v}'s first note starts in`;
           input.addEventListener("change", () => setOctave(v, Number(input.value)));
-          label.append(v, input);
+          label.append(v, input, clearButton(`octave ${v}`));
           return label;
         }),
       );
     }
     for (const input of octavesEl.querySelectorAll("input")) {
       const v = input.dataset.voice!;
-      if (document.activeElement !== input) input.value = String(s.octaves[v] ?? defaultOctave(v));
+      if (document.activeElement !== input) input.value = String(settings.octaves[v] ?? defaultOctave(v));
+    }
+    const written = s?.directives ?? [];
+    for (const b of document.querySelectorAll<HTMLButtonElement>("header button.clear")) {
+      b.hidden = !written.includes(b.dataset.directive!);
+      b.title = block === 0 ? "Remove from the header: back to the default" : `Remove from block ${block + 1}'s change: back to the block before`;
     }
   }
 
@@ -83,39 +110,17 @@ export function setupSettings(app: App): Settings {
     if (Number.isInteger(n)) setSetting(["octave", voice], n);
   }
 
-  /**
-   * Sets a directive for the settings block: the header for the first block, a
-   * change before any other. fig edits or adds it in place; where fig cannot —
-   * a header or change with nothing to add after, or no `octave` mapping to add
-   * to — the directive line is written as text instead.
-   */
   function setSetting(path: Path, value: string | number): void {
-    const { song, source } = app;
-    if (!song || !app.figReady) return;
-    const block = settingsBlock();
-    const full: Path = block === 0 ? path : ["blocks", block, ...path];
-    try {
-      app.history.commit(applyEdits(source.value, (ed) => ed.setValue(full, value)));
-      return;
-    } catch {
-      // fall through to a text insertion
-    }
-    const line = `${path.join(" ")} ${value}`;
-    const lines = source.value.split("\n");
-    let at: number;
-    if (block === 0) {
-      // After the header's last directive, before the first voice.
-      const firstVoice = song.blocks[0] ? song.blocks[0].line - 1 : lines.length;
-      at = 0;
-      for (let i = 0; i < firstVoice; i++) {
-        if (/^(key|tempo|time|octave)\b/.test(lines[i]!.replace(/\/\/.*/, "").trim())) at = i + 1;
-      }
-    } else {
-      // Just above the block's first voice line, after any change already there.
-      at = song.blocks[block]!.line - 1;
-    }
-    lines.splice(at, 0, line);
-    app.tryEdit(() => lines.join("\n"));
+    const { song } = app;
+    if (!song) return;
+    if (app.tryEdit(() => setDirective(app.source.value, song, settingsBlock(), path, value))) return;
+    // Refused (say, a tempo out of range): show what the source still says.
+    sync(app.song!);
+  }
+
+  function clear(directive: string): void {
+    const { song } = app;
+    if (song && song.blocks.length > 0) app.tryEdit(() => clearDirective(app.source.value, song, settingsBlock(), directive));
   }
 
   return { sync };

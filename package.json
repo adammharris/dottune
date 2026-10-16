@@ -15,6 +15,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@diaryx/fig": "5.0.0"
+    "@diaryx/fig": "7.0.0"
   }
 }
