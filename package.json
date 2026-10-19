@@ -4,15 +4,17 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot ./web/index.html",
-    "build": "bun build ./web/index.html --outdir dist --minify",
+    "build": "bun build ./web/index.html --outdir dist/dottune --minify",
     "test": "bun test",
     "events": "bun tools/events.ts",
     "midi": "bun tools/midi.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "4.151.2"
   },
   "dependencies": {
     "@diaryx/fig": "7.0.0"
