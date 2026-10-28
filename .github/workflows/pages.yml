@@ -26,8 +26,11 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      # cpal's ALSA backend and rfd's portal, for the window build's tests.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      # The window build's system libraries, for its tests: ALSA (cpal),
+      # fontconfig (Blitz's system fonts), OpenSSL (blitz-net) and Wayland.
+      - run: >-
+          sudo apt-get update && sudo apt-get install -y pkg-config
+          libasound2-dev libfontconfig1-dev libssl-dev libwayland-dev libxkbcommon-dev
       - run: cargo test --workspace
       - name: Install wasm-bindgen-cli at the locked version
         run: |
