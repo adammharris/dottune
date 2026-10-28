@@ -1,0 +1,8 @@
+# Pinned to the same compiler as the diaryx-org repos (their rust-toolchain.toml
+# files and diaryx-org/nix's `versions.rust`), so builds here share one sccache
+# cache with them; sccache keys on the exact rustc version.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

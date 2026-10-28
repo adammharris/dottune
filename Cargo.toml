@@ -1,0 +1,61 @@
+# dottune: a plain-text music format (SPEC.md) and an editor for it.
+#
+# - `tune` (crates/tune): the format. The compiler, the edits the editor
+#   makes (as fig splices), Standard MIDI Files, the tempo map and share
+#   links. No UI, so it builds and tests in seconds.
+# - `dottune` (apps/dottune): the editor, a Dioxus app on unit's components:
+#   in a window drawn by Blitz (`native`, the default), or in a browser
+#   (`web`).
+#
+#     cargo test --workspace                   # the format, and the editor's pure parts
+#     cargo run -p dottune                     # the editor, in a window
+#     apps/dottune/web/build.sh                # the editor, as a static site
+[workspace]
+resolver = "3"
+members = ["crates/tune", "apps/dottune"]
+default-members = ["crates/tune", "apps/dottune"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/adammharris/dottune"
+
+[workspace.dependencies]
+tune = { path = "crates/tune" }
+# The edits go through fig's editor, with the tune language registered, so
+# every change is a minimal splice that fig reparses and rolls back if the
+# result does not parse.
+fig = { version = "7", default-features = false }
+
+[profile.dev]
+debug = "line-tables-only"
+
+# Stylo, parley and Vello optimised even in a debug build, or a frame takes
+# ten times as long to draw.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# Blitz from diaryx-org's fork, its `leaf` branch, at the version
+# dioxus-native pins: unit's components need its accessibility tree (ARIA's
+# states), its focusing what a press lands on, and its layout fixes (unit's
+# README.md, "Blitz"). Every Blitz crate in the graph comes from it, as the
+# fork's crates depend on each other by path.
+[patch.crates-io]
+blitz-dom = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+blitz-traits = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+blitz-shell = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+blitz-paint = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+blitz-net = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+stylo_taffy = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+debug_timer = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+accesskit_xplat = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+anyrender_vello_hybrid = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+glifo = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+vello_gpu = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+vello_gpu_shaders = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }

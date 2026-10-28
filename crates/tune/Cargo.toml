@@ -1,0 +1,34 @@
+# The tune format (SPEC.md): compiling a tune to its event list, the edits
+# the editor makes to one, Standard MIDI Files, and share links. Pure Rust
+# with no UI, for the app, the tests and the tools.
+#
+#     cargo test -p tune
+#     cargo run -p tune --bin events -- examples/ode-to-joy.tune
+#     cargo run -p tune --bin midi -- examples/ode-to-joy.tune out.mid
+#     cargo run -p tune --features helper --bin fig-tune   # the fig CLI's helper
+[package]
+name = "tune"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+# `fig-tune`, which serves the tune language to the `fig` CLI over stdio
+# (.fig/languages.figl).
+helper = ["fig/helper"]
+
+[dependencies]
+fig = { workspace = true }
+# Share links: a tune deflated (raw, as a browser's CompressionStream writes
+# it) and base64url-encoded.
+miniz_oxide = "0.8"
+base64 = "0.22"
+
+[[bin]]
+name = "fig-tune"
+required-features = ["helper"]
+
+[dev-dependencies]
+fig = { workspace = true }

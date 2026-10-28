@@ -1,9 +1,11 @@
-# Builds the web player and deploys it to GitHub Pages on every push to main.
+# Tests the format and the editor, builds the editor for the web, and
+# deploys it to GitHub Pages on every push to main.
 name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -12,28 +14,35 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          bun-version: 1.4.2
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun test
-      - run: bun tools/spec-examples.ts --check
-      - run: bun run build
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # cpal's ALSA backend and rfd's portal, for the window build's tests.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - run: cargo test --workspace
+      - name: Install wasm-bindgen-cli at the locked version
+        run: |
+          v=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)
+          cargo install --locked wasm-bindgen-cli --version "$v"
+      - run: apps/dottune/web/build.sh dist
       - uses: actions/configure-pages@v5
+        if: github.ref == 'refs/heads/main'
       - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main'
         with:
           path: dist
 
   deploy:
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:

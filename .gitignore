@@ -1,4 +1,4 @@
-node_modules/
+/target/
+/dist/
 *.mid
 .DS_Store
-dist/

@@ -1,0 +1,74 @@
+# The tune editor: the text of a tune beside a piano roll of it, which plays
+# it and edits it. A Dioxus page on unit's components, which draw the same
+# and are read by assistive tech in a window drawn by Blitz (`native`, the
+# default) and in a browser (`web`).
+#
+#     cargo run -p dottune                                         # a window
+#     cargo run -p dottune -- examples/ode-to-joy.tune             # a window, on a file
+#     apps/dottune/web/build.sh                                    # a static site, for Pages
+[package]
+name = "dottune"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = ["native"]
+native = ["dep:dioxus-native", "dep:cpal", "dep:rfd", "dep:arboard", "dep:dirs"]
+web = [
+    "dep:dioxus-web",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:js-sys",
+    "dep:web-sys",
+    "dep:console_error_panic_hook",
+]
+
+[dependencies]
+tune = { workspace = true }
+# A directive's value, as the settings write it.
+fig = { workspace = true }
+# diaryx-org's components for Dioxus, which work on Blitz and on the web and
+# are read by assistive tech: the toolbar's buttons, menus and fields, the
+# prompts, the toasts. On a Mac, the accent the user chose.
+unit = { git = "https://github.com/diaryx-org/unit", branch = "main", features = ["apple"] }
+dioxus = { version = "0.8.0-alpha.3", default-features = false, features = [
+    "macro",
+    "html",
+    "signals",
+    "hooks",
+] }
+# Blitz on wgpu with its default renderer, vello-hybrid, and the
+# accessibility tree: the versions dioxus-native 0.8.0-alpha.3 pins, Blitz
+# patched from the fork (the root manifest's [patch]).
+dioxus-native = { version = "0.8.0-alpha.3", optional = true, default-features = false, features = [
+    "net", "svg", "system-fonts", "vello-hybrid", "accessibility",
+] }
+dioxus-web = { version = "=0.8.0-alpha.3", optional = true }
+
+# ── in a window ─────────────────────────────────────────────────────────────
+# The synthesizer's output.
+cpal = { version = "0.16", optional = true }
+# Open, Save and Export: the desktop's own dialogs (on Linux, through the
+# XDG desktop portal).
+rfd = { version = "0.17", optional = true }
+# Share copies a link.
+arboard = { version = "3", optional = true, default-features = false, features = ["wayland-data-control"] }
+# Where the last tune and the view's settings are kept between runs.
+dirs = { version = "6", optional = true }
+
+# ── in a browser ────────────────────────────────────────────────────────────
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "AudioContext", "AudioDestinationNode", "AudioNode", "AudioParam", "AudioScheduledSourceNode",
+    "BaseAudioContext", "BiquadFilterNode", "BiquadFilterType", "DynamicsCompressorNode",
+    "GainNode", "OscillatorNode", "OscillatorType",
+    "Blob", "BlobPropertyBag", "Clipboard", "Document", "Element", "File", "FileList",
+    "HtmlAnchorElement", "HtmlElement", "HtmlInputElement", "History", "Location", "Navigator",
+    "Storage", "Url", "Window",
+] }
+console_error_panic_hook = { version = "0.1", optional = true }

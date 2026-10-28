@@ -1,4 +1,4 @@
 language[]
 > name = tune
 > extensions = [tune]
-> command = [bun, ~/Code/dottune/tools/fig-tune.mjs]
+> command = [cargo, run, -q, --manifest-path, ~/Documents/dottune/Cargo.toml, -p, tune, --features, helper, --bin, fig-tune]

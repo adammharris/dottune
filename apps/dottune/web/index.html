@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- The editor's page in a browser, for GitHub Pages: `build.sh` puts the
+     wasm and its bindings beside it. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tune</title>
+<meta name="description" content="A plain-text music format, and a piano roll that plays it and edits it." />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1b26; }
+</style>
+</head>
+<body>
+<div id="main"></div>
+<noscript>The editor is a Dioxus app compiled to WebAssembly, and needs JavaScript to start.</noscript>
+<script type="module">
+  import init from "./dottune.js";
+  init({ module_or_path: "./dottune_bg.wasm" });
+</script>
+</body>
+</html>
